@@ -1,0 +1,61 @@
+name: Mode B — smart scan (manual, AI, paid)
+
+# Triggered ONLY by the "Run smart scan" button on the dashboard (or by hand here).
+# The dashboard passes the chosen model (haiku or sonnet) as an input.
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: "Claude model to use"
+        required: true
+        default: "haiku"
+        type: choice
+        options:
+          - haiku
+          - sonnet
+
+concurrency:
+  group: comp-tracker-write
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  smart:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-chromium
+
+      - name: Install Chromium
+        run: python -m playwright install --with-deps chromium
+
+      - name: Run Mode-B smart scan (${{ inputs.model }})
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python scanner.py --smart --model "${{ inputs.model }}"
+
+      - name: Commit results (this also refreshes GitHub Pages)
+        run: |
+          git config user.name "comp-tracker-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data.json index.html
+          git commit -m "Mode B smart scan (${{ inputs.model }}) $(date -u +'%Y-%m-%d %H:%M UTC')" || echo "nothing to commit"
+          git pull --rebase --autostash origin "${{ github.ref_name }}" || true
+          git push || echo "push failed (will retry)"
