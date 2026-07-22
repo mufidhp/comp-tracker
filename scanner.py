@@ -162,18 +162,24 @@ def _merge_dupe(keep: dict, other: dict):
 # --------------------------------------------------------------------------- #
 #  Mode-A free date extraction from detail pages (NEW items only, capped)
 # --------------------------------------------------------------------------- #
-def hunt_dates(records, seen_ids, cfg):
+def hunt_dates(records, cfg):
+    """
+    Open detail pages and regex-extract competition dates (fast HTTP only, capped).
+    Runs EVERY scan for any record whose dates aren't confirmed — not just new ones —
+    so a wrong first guess (e.g. article publish dates mistaken for the period)
+    self-corrects on the next scan instead of sticking forever.
+    """
     cap = int(cfg.get("thresholds", {}).get("detail_fetch_cap", 40))
     delay = float(cfg.get("thresholds", {}).get("detail_fetch_delay_sec", 1.5))
     budget = cap
-    for r in records:
+    # date-less records first — they gain the most from a fetch
+    ordered = sorted(records, key=lambda r: 0 if not r.get("end_utc") else 1)
+    for r in ordered:
         if budget <= 0:
             break
-        if r.get("date_confidence") == "confirmed" or r.get("end_utc"):
-            continue
-        if r.get("id") in seen_ids:      # only spend fetches on genuinely new comps
-            continue
         if r.get("tier") == "avoid":
+            continue
+        if r.get("date_confidence") == "confirmed" and r.get("end_utc"):
             continue
         html = fetchers.fetch_detail_fast(r.get("official_link", ""), cfg)  # fast HTTP-only
         budget -= 1
@@ -186,6 +192,8 @@ def hunt_dates(records, seen_ids, cfg):
             r["start_utc"] = s or r.get("start_utc")
             r["end_utc"] = e
             r["date_confidence"] = conf
+        elif s and not r.get("start_utc"):
+            r["start_utc"] = s
     return records
 
 
@@ -231,7 +239,11 @@ def merge_and_retain(fresh: list, prev_data: dict, cfg: dict, now: dt.datetime):
         elif not end and (now - last_seen) <= absent_drop:
             keep = True                                  # unknown-date, seen recently
         if keep:
-            fresh_by_id[pid] = p
+            # re-screen with the CURRENT filter: previously stored noise (e.g. World Cup
+            # promos saved before a filter tightening) gets purged instead of lingering
+            v = classify.classify_item(p.get("name", ""), "", cfg)
+            if v["keep"]:
+                fresh_by_id[pid] = p
 
     # drop ended-beyond-retention outright
     out = []
@@ -296,9 +308,8 @@ def run_once(cfg, sources, out_dir, dry_run=False):
 
     all_records = dedup(all_records)
 
-    # free date hunting for new items
-    seen_ids = set(seen.keys())
-    all_records = hunt_dates(all_records, seen_ids, cfg)
+    # free date hunting (every scan, for anything without confirmed dates)
+    all_records = hunt_dates(all_records, cfg)
 
     # merge with previous (protect Mode B) + retention
     merged = merge_and_retain(all_records, prev_data, cfg, now)

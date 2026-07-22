@@ -57,17 +57,24 @@ filter:
     - trade to win
     - trading challenge
 
+  # Instrument-mismatch words. An item hit by these is dropped UNLESS a real
+  # spot/swap signal co-occurs, in which case it is kept as type "mixed".
   exclude_keywords:
     - futures
     - perpetual
     - perp
     - perps
+    - copy trading
+    - futures grid
+
+  # HARD excludes — never a spot/onchain trading competition, always dropped,
+  # no "mixed" rescue. (Giveaways/football promos from wallet channels were
+  # slipping through because "wallet" counted as an onchain signal.)
+  hard_exclude_keywords:
     - prediction
     - predict
     - demo
     - paper trading
-    - copy trading
-    - futures grid
     - hodl
     - staking
     - stake
@@ -79,6 +86,17 @@ filter:
     - learn & earn
     - learn and earn
     - cryptopedia
+    - giveaway
+    - world cup
+    - football
+    - semifinal
+    - semi-final
+    - meme contest
+    - quiz
+    - lucky draw
+    - raffle
+    - watch to earn
+    - fan token
 
   # "onchain" tag applied when any of these appear (wallet / self-custody swaps)
   onchain_keywords:

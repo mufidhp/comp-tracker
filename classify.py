@@ -90,6 +90,14 @@ def classify_item(title: str, body: str, cfg: dict) -> dict:
     score = len(signal_hits)
     threshold = int(f.get("score_threshold", 2))
 
+    # HARD excludes: content that is never a trading competition (giveaways, football
+    # promos, meme contests, staking...). Nothing rescues these — not even a spot/wallet
+    # word, because wallet-channel posts mention "wallet" in everything they publish.
+    hard = any_in(f.get("hard_exclude_keywords"))
+    if hard:
+        return {"keep": False, "type": None, "score": score,
+                "reason": f"hard-excluded by '{hard[0]}'"}
+
     # A "spot signal" is what lets an item survive a futures/exclude word as MIXED.
     # Generic words like "trading competition"/"tournament" do NOT count — otherwise a
     # futures-only "Perpetual Futures Trading Competition" would wrongly be kept.

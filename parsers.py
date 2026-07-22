@@ -69,15 +69,39 @@ _NAMED_TZ = {
 _TZ_OFFSET_RE = re.compile(r"\b(?:utc|gmt)\s*([+-]\s*\d{1,2})(?::?(\d{2}))?", re.I)
 _TZ_NAME_RE = re.compile(r"\b(utc|gmt|sgt|hkt|kst|jst|cet|eet|est|edt|pst|pdt)\b", re.I)
 
-# ISO-ish: 2026-07-28 08:00  |  2026/07/28T08:00
-_ISO_RE = re.compile(
-    r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[ T](\d{1,2}):(\d{2}))?")
-# Month name: July 28, 2026 08:00  |  Jul 28 2026
-_MDY_RE = re.compile(
-    r"\b([a-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})(?:[, ]+(\d{1,2}):(\d{2}))?", re.I)
-# Day first: 28 July 2026 08:00
-_DMY_RE = re.compile(
-    r"\b(\d{1,2})(?:st|nd|rd|th)?\s+([a-z]{3,9})\.?,?\s+(\d{4})(?:[, ]+(\d{1,2}):(\d{2}))?", re.I)
+# ---- date token patterns -------------------------------------------------
+# ISO-ish: 2026-07-28 08:00 | 2026/07/28T08:00
+_ISO_RE = re.compile(r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[ T](\d{1,2}):(\d{2}))?")
+# Numeric US-style: 05/21/2026 (also accepts 21/05/2026 when first number > 12)
+_NUM_RE = re.compile(r"\b(\d{1,2})/(\d{1,2})/(20\d{2})\b")
+_MON_PAT = (r"(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?"
+            r"|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)")
+# "July 22" — year/time (if any) found by scanning just after; (?!\d) stops "may 2026" -> day 20
+_CORE_MDY = re.compile(r"\b" + _MON_PAT + r"\.?\s{0,3}(\d{1,2})(?:st|nd|rd|th)?(?!\d)", re.I)
+# "22 July [2026]"
+_CORE_DMY = re.compile(r"\b(\d{1,2})(?:st|nd|rd|th)?(?!\d)\s{0,3}" + _MON_PAT + r"\b\.?", re.I)
+_TIME_RE = re.compile(r"(\d{1,2}):(\d{2})")
+_YEAR_RE = re.compile(r"\b(20\d{2})\b")
+
+# ---- context patterns ----------------------------------------------------
+# Dates right after these words are ARTICLE metadata, not competition dates.
+_META_BACK = re.compile(r"(publish|updated|posted|modified|edited|released)", re.I)
+# Words that mark a date as part of the event period.
+_PERIOD_HINT = re.compile(
+    r"(period|phase|runs?|running|from|start|begin|launch|end|until|till|through|"
+    r"between|duration|campaign|event|deadline|clos\w*|expir\w*|live|held)", re.I)
+# A lone date preceded by these is an END date.
+_END_BACK = re.compile(
+    r"(end(?:s|ed|ing)?(?:\s+on)?|until|till|through|deadline|clos(?:es|ing|ed)?|expir\w*)"
+    r"[\s:\-–]{0,4}$", re.I)
+# Connector between two dates of a range: "– | to | until | and", possibly after a tz.
+_GAP_RANGE = re.compile(
+    r"^[\s,()]*(?:(?:utc|gmt|sgt|hkt|kst|jst|cet|eet|est|edt|pst|pdt)\b[\s,()]*)?"
+    r"(?:[+\-]\s?\d{1,2}(?::?\d{2})?[\s,()]*)?"
+    r"(?:(?:to|until|till|through|and)\b|[–—−~→➡>-])[\s,()]*$", re.I)
+# Chars allowed between a date core and its own year token (time digits, tz words).
+_CLEAN_GAP = re.compile(r"^[\s\d:.,()]*(?:(?:utc|gmt|sgt|hkt|kst|jst|am|pm)\b[\s\d:.,()+\-]*)*$",
+                        re.I)
 
 
 def _detect_offset(text: str):
@@ -102,63 +126,153 @@ def _mk(y, mo, d, hh, mm):
         return None
 
 
-def _find_dates(text: str):
-    """Return a list of (position, naive_datetime, had_time)."""
-    out = []
+def _mk_infer(y, mo, d, hh, mm, now, had_year):
+    """Build a datetime; if the year is missing, pick the year closest to now."""
+    if had_year:
+        d0 = _mk(y, mo, d, hh, mm)
+        return d0 if d0 and 2020 <= d0.year <= 2035 else None
+    best = None
+    for yy in (now.year - 1, now.year, now.year + 1):
+        d0 = _mk(yy, mo, d, hh, mm)
+        if d0 and (best is None
+                   or abs((d0 - now).total_seconds()) < abs((best - now).total_seconds())):
+            best = d0
+    return best
+
+
+def _scan_tail(text, endpos):
+    """
+    After a "Month Day" core, look just ahead for a time (10:00) and/or a year (2026)
+    that belong to THIS date — i.e. nothing but time digits / tz words in between.
+    Returns (year|None, hh, mm, span_end).
+    """
+    tail = text[endpos:endpos + 34]
+    span = endpos
+    hh = mm = None
+    yr = None
+    tm = _TIME_RE.search(tail)
+    if tm and re.fullmatch(r"[\s,(@]*(?:at\s*)?", tail[:tm.start()], re.I):
+        hh, mm = tm.group(1), tm.group(2)
+        span = endpos + tm.end()
+    ym = _YEAR_RE.search(tail)
+    if ym and _CLEAN_GAP.match(tail[:ym.start()]):
+        yr = int(ym.group(1))
+        span = max(span, endpos + ym.end())
+        if hh is None:  # "28 July 2026 08:00" — time after the year
+            after = text[endpos + ym.end():endpos + ym.end() + 12]
+            t2 = _TIME_RE.search(after)
+            if t2 and re.fullmatch(r"[\s,(]*", after[:t2.start()]):
+                hh, mm = t2.group(1), t2.group(2)
+                span = endpos + ym.end() + t2.end()
+    return yr, hh, mm, span
+
+
+def _collect_candidates(text, now):
+    """Find every date mention with its text span. Returns sorted, de-overlapped list."""
+    cands = []
+
+    def add(pos, endpos, y, mo, d, hh, mm, had_year):
+        d0 = _mk_infer(y, mo, d, hh, mm, now, had_year)
+        if d0:
+            cands.append({"pos": pos, "end": endpos, "dt": d0})
+
     for m in _ISO_RE.finditer(text):
         y, mo, d, hh, mm = m.groups()
-        d0 = _mk(y, mo, d, hh, mm)
-        if d0 and 2020 <= d0.year <= 2035:
-            out.append((m.start(), d0, bool(hh)))
-    for rgx, order in ((_MDY_RE, "mdy"), (_DMY_RE, "dmy")):
-        for m in rgx.finditer(text):
-            g = m.groups()
-            if order == "mdy":
-                mon, d, y, hh, mm = g
-            else:
-                d, mon, y, hh, mm = g
-            mo = _MONTHS.get(mon[:3].lower())
-            if not mo:
-                continue
-            d0 = _mk(y, mo, d, hh, mm)
-            if d0 and 2020 <= d0.year <= 2035:
-                out.append((m.start(), d0, bool(hh)))
-    out.sort(key=lambda t: t[0])
-    # de-duplicate near-identical hits at overlapping positions
-    uniq = []
-    for pos, d0, ht in out:
-        if uniq and abs(pos - uniq[-1][0]) < 3 and uniq[-1][1] == d0:
-            continue
-        uniq.append((pos, d0, ht))
-    return uniq
+        add(m.start(), m.end(), y, mo, d, hh, mm, True)
+    for m in _NUM_RE.finditer(text):
+        a, b, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        mo, d = (a, b) if a <= 12 else (b, a)
+        if 1 <= mo <= 12 and 1 <= d <= 31:
+            add(m.start(), m.end(), y, mo, d, None, None, True)
+    for m in _CORE_MDY.finditer(text):
+        mo = _MONTHS.get(m.group(1)[:3].lower())
+        if mo:
+            yr, hh, mm, span = _scan_tail(text, m.end())
+            add(m.start(), span, yr, mo, m.group(2), hh, mm, yr is not None)
+    for m in _CORE_DMY.finditer(text):
+        mo = _MONTHS.get(m.group(2)[:3].lower())
+        if mo:
+            yr, hh, mm, span = _scan_tail(text, m.end())
+            add(m.start(), span, yr, mo, m.group(1), hh, mm, yr is not None)
+
+    cands.sort(key=lambda c: (c["pos"], -(c["end"] - c["pos"])))
+    out, last_end = [], -1
+    for c in cands:
+        if c["pos"] < last_end:
+            continue  # overlaps a date already taken
+        out.append(c)
+        last_end = c["end"]
+    return out
 
 
 def extract_dates(text: str):
     """
-    Best-effort start/end extraction.
+    Competition start/end extraction — context-aware.
+
+    Rules (learned from real failures like Trust Wallet's Ondo comp, where
+    'Published on: Jul 10 / Updated on: Jul 17' was mistaken for the period):
+      * dates right after publish/update words are article METADATA -> ignored;
+      * ranged pairs ("July 10 10:00 UTC – July 22", "Jul 17 - Jul 29") are the
+        strongest signal; multi-phase events use earliest start -> latest end;
+      * a lone date after "ends/ended on/until/deadline" is an END date;
+      * year-less dates ("Jul 17") get the year closest to today;
+      * numeric 05/21/2026 dates are understood;
+      * confidence is 'confirmed' ONLY if the page states a timezone AND an end
+        date was found.
     Returns (start_utc_iso|None, end_utc_iso|None, confidence).
-    confidence: 'confirmed' only when a timezone is stated in the text.
     """
     if not text:
         return None, None, "unverified"
-    text = re.sub(r"\s+", " ", text)[:6000]
+    text = re.sub(r"\s+", " ", text)[:8000]
+    now = dt.datetime.now(UTC).replace(tzinfo=None)
     offset, _label = _detect_offset(text)
-    dates = _find_dates(text)
-    if not dates:
+    cands = _collect_candidates(text, now)
+    if not cands:
         return None, None, "unverified"
 
+    # classify each date by its surrounding words
+    for c in cands:
+        back = text[max(0, c["pos"] - 40):c["pos"]]
+        fwd = text[c["end"]:c["end"] + 12]
+        c["meta"] = bool(_META_BACK.search(back[-32:])) and not _PERIOD_HINT.search(back[-22:])
+        c["endh"] = bool(_END_BACK.search(back))
+        c["period"] = bool(_PERIOD_HINT.search(back) or _PERIOD_HINT.search(fwd))
+        c["ranged"] = False
+    for i in range(len(cands) - 1):
+        gap = text[cands[i]["end"]:cands[i + 1]["pos"]]
+        if len(gap) <= 32 and _GAP_RANGE.match(gap):
+            cands[i]["ranged"] = cands[i + 1]["ranged"] = True
+
+    # keep plausible, non-metadata dates near the present
+    lo, hi = now - dt.timedelta(days=120), now + dt.timedelta(days=400)
+    usable = [c for c in cands if not c["meta"] and lo <= c["dt"] <= hi]
+    if not usable:
+        return None, None, "unverified"
+
+    # strongest evidence first: ranges > hinted singles > anything left
+    ranged = [c for c in usable if c["ranged"]]
+    hinted = [c for c in usable if c["period"] or c["endh"]]
+    pool = ranged or hinted or usable
+
+    dts = sorted({c["dt"] for c in pool})
+    if len(dts) >= 2:
+        start, end = dts[0], dts[-1]
+    else:
+        only = dts[0]
+        if any(c["endh"] for c in pool if c["dt"] == only):
+            start, end = None, only
+        else:
+            start, end = only, None
+
     def to_utc(naive):
+        if naive is None:
+            return None
         off = offset if offset is not None else 0.0
         as_utc = naive - dt.timedelta(hours=off)
         return as_utc.replace(tzinfo=UTC).replace(microsecond=0).isoformat()
 
-    start = dates[0][1]
-    end = dates[1][1] if len(dates) >= 2 else None
-    # sanity: end must be after start; both within a year of "now-ish"
-    if end and end < start:
-        start, end = end, start
-    conf = "confirmed" if offset is not None else "unverified"
-    return to_utc(start), (to_utc(end) if end else None), conf
+    conf = "confirmed" if (offset is not None and end is not None) else "unverified"
+    return to_utc(start), to_utc(end), conf
 
 
 # --------------------------------------------------------------------------- #
