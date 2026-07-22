@@ -64,6 +64,13 @@ _TEMPLATE = r"""<!doctype html>
   .chip{background:var(--panel2);border:1px solid var(--border);color:var(--text);
         padding:6px 12px;border-radius:20px;cursor:pointer;font-size:13px;user-select:none}
   .chip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
+  .venuelink{color:var(--accent);cursor:pointer;font-weight:600}
+  .venuelink:hover{text-decoration:underline}
+  #venuebar{margin:8px 0}
+  .vfilter{display:inline-flex;align-items:center;gap:10px;background:var(--panel2);
+           border:1px solid var(--accent);border-radius:20px;padding:6px 14px;font-size:13px}
+  .vfilter .x{cursor:pointer;color:var(--muted);font-weight:700}
+  .vfilter .x:hover{color:var(--red)}
   .health{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0 4px}
   .hpill{font-size:11px;padding:3px 8px;border-radius:6px;border:1px solid var(--border);
          background:var(--panel2);color:var(--muted)}
@@ -131,6 +138,7 @@ _TEMPLATE = r"""<!doctype html>
   </div>
 
   <div class="chips" id="chips"></div>
+  <div id="venuebar"></div>
   <div class="health" id="health"></div>
   <div id="groups"></div>
 </div>
@@ -181,7 +189,8 @@ _TEMPLATE = r"""<!doctype html>
     {id:"new",label:"New"}
   ];
   var active="all";
-  function pass(c){
+  var venueFilter=null;
+  function passCat(c){
     if(active==="all") return true;
     if(active==="soon"){var hl=hoursLeft(c.end_utc); return hl!==null&&hl>0&&hl<=C.chipHours;}
     if(active==="onchain") return c.type==="onchain";
@@ -189,6 +198,27 @@ _TEMPLATE = r"""<!doctype html>
     if(active==="safe") return c.tier==="A";
     if(active==="new") return !!c.is_new;
     return true;
+  }
+  function pass(c){
+    if(venueFilter && c.venue!==venueFilter) return false;
+    return passCat(c);
+  }
+  function setVenue(v){
+    venueFilter=v; renderVenueBanner(); render();
+    window.scrollTo({top:0,behavior:"smooth"});
+  }
+  function renderVenueBanner(){
+    var bar=document.getElementById("venuebar"); bar.textContent="";
+    if(!venueFilter) return;
+    var n=comps.filter(function(c){return c.venue===venueFilter;}).length;
+    var wrap=el("span","vfilter");
+    wrap.appendChild(txt("span",null,"Showing only "));
+    wrap.appendChild(txt("b",null,venueFilter));
+    wrap.appendChild(txt("span",null," ("+n+")"));
+    var x=txt("span","x","✕ show all venues");
+    x.addEventListener("click",function(){ setVenue(null); });
+    wrap.appendChild(x);
+    bar.appendChild(wrap);
   }
 
   function badge(cls,label){ return txt("span","b "+cls,label); }
@@ -208,7 +238,11 @@ _TEMPLATE = r"""<!doctype html>
     badges.appendChild(badge(tierCls,tierLbl));
     box.appendChild(badges);
 
-    var venue=txt("div","meta",null); venue.appendChild(txt("b",null,c.venue||"?"));
+    var venue=el("div","meta");
+    var vlink=txt("b","venuelink",c.venue||"?");
+    vlink.title="Show only "+(c.venue||"this venue")+" competitions";
+    vlink.addEventListener("click",function(){ setVenue(venueFilter===c.venue?null:c.venue); });
+    venue.appendChild(vlink);
     if(c.prize){ venue.appendChild(document.createTextNode(" · "+c.prize)); }
     box.appendChild(venue);
 
@@ -336,7 +370,7 @@ _TEMPLATE = r"""<!doctype html>
 
   // init
   comps.forEach(function(c){ if(c.hours_left===undefined) c.hours_left=hoursLeft(c.end_utc); });
-  head(); health(); chips(); render(); initModels();
+  head(); health(); chips(); renderVenueBanner(); render(); initModels();
   setInterval(tick,60000);
 })();
 </script>
