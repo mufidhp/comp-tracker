@@ -1,0 +1,19 @@
+# secrets — NEVER commit these
+.env
+.env.*
+*.secret
+secrets.yaml
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# playwright / os junk
+.cache/
+.DS_Store
+Thumbs.db
+
+# dry-run scratch
+comp_tracker_dryrun/

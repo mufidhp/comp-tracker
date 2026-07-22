@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src https://api.github.com; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'">
+<title>Crypto Spot Competition Tracker</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2330; --border:#2a3240;
+    --text:#e6edf3; --muted:#9aa7b4; --accent:#4c9aff;
+    --green:#2ea043; --amber:#d29922; --red:#e5534b; --grey:#6e7681;
+    --avoid:#3d1418; --avoidbd:#e5534b;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+       font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+       line-height:1.45;font-size:15px}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  header{padding:18px 20px;border-bottom:1px solid var(--border);background:var(--panel)}
+  header.stale{background:#3d1418;border-bottom-color:var(--avoidbd)}
+  h1{margin:0 0 4px;font-size:20px}
+  .sub{color:var(--muted);font-size:13px}
+  .wrap{max-width:1100px;margin:0 auto;padding:16px 20px 60px}
+  .chips{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0}
+  .chip{background:var(--panel2);border:1px solid var(--border);color:var(--text);
+        padding:6px 12px;border-radius:20px;cursor:pointer;font-size:13px;user-select:none}
+  .chip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
+  .health{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0 4px}
+  .hpill{font-size:11px;padding:3px 8px;border-radius:6px;border:1px solid var(--border);
+         background:var(--panel2);color:var(--muted)}
+  .hpill.ok{color:#7ee2a8} .hpill.stale{color:var(--amber)}
+  .hpill.blocked,.hpill.failed{color:var(--red)} .hpill.empty{color:var(--amber)}
+  .hpill.disabled{opacity:.5}
+  .smartbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:16px 0;
+            padding:12px 14px;background:var(--panel);border:1px solid var(--border);border-radius:10px}
+  .smartbar select,.smartbar input,.smartbar button{
+    background:var(--panel2);color:var(--text);border:1px solid var(--border);
+    border-radius:8px;padding:8px 10px;font-size:13px}
+  .smartbar button{cursor:pointer;background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+  .smartbar button:disabled{background:var(--panel2);color:var(--muted);cursor:not-allowed;border-color:var(--border)}
+  .smallnote{font-size:12px;color:var(--muted)}
+  details.settings{margin-left:auto}
+  details.settings summary{cursor:pointer;color:var(--muted);font-size:12px}
+  .setrow{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+  .groupttl{margin:22px 0 8px;font-size:14px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:14px 15px;position:relative}
+  .card.avoid{background:var(--avoid);border-color:var(--avoidbd)}
+  .card h3{margin:0 0 6px;font-size:15px;line-height:1.3;padding-right:70px}
+  .badges{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
+  .b{font-size:11px;padding:2px 7px;border-radius:6px;border:1px solid var(--border)}
+  .b.spot{color:#7ee2a8} .b.onchain{color:#79c0ff} .b.mixed{color:#e3b341}
+  .b.tierA{color:#7ee2a8;border-color:#2ea04366} .b.caution{color:#e3b341}
+  .b.avoid{color:#fff;background:var(--avoidbd);border-color:var(--avoidbd)}
+  .b.new{color:#fff;background:var(--accent);border-color:var(--accent)}
+  .cd{position:absolute;top:12px;right:12px;font-size:12px;font-weight:700;padding:3px 8px;border-radius:6px}
+  .cd.green{color:#7ee2a8;background:#1c3a24} .cd.amber{color:#f0c674;background:#3a2f14}
+  .cd.red{color:#ffb3ae;background:#3d1418} .cd.grey{color:var(--muted);background:var(--panel2)}
+  .meta{font-size:13px;color:var(--muted);margin:4px 0}
+  .meta b{color:var(--text);font-weight:600}
+  .warn{color:var(--amber);font-size:12px;margin-top:4px}
+  .note{margin-top:8px;padding:8px;background:var(--panel2);border-radius:8px;font-size:13px;color:#cdd7e0}
+  .open{display:inline-block;margin-top:10px;font-size:13px;border:1px solid var(--accent);
+        padding:5px 10px;border-radius:8px}
+  .empty{color:var(--muted);padding:30px;text-align:center}
+  footer{color:var(--muted);font-size:12px;text-align:center;padding:24px}
+  @media (max-width:520px){.cards{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header id="hdr">
+  <h1>🏆 Crypto Spot Competition Tracker</h1>
+  <div class="sub" id="subline"></div>
+</header>
+<div class="wrap">
+  <div class="smartbar">
+    <span class="smallnote">Auto scans are <b>free &amp; rule-based</b>. Smart scan uses AI (your chosen model) and runs only when you click.</span>
+    <select id="model" aria-label="AI model"></select>
+    <button id="runSmart">Run smart scan</button>
+    <span class="smallnote" id="smartStatus"></span>
+    <details class="settings">
+      <summary>⚙ smart-scan setup</summary>
+      <div class="setrow">
+        <input id="repo" placeholder="owner/repo (e.g. shaista/comp-tracker)" size="28">
+        <input id="token" type="password" placeholder="GitHub fine-grained token (actions:write)" size="34">
+        <button id="saveTok">Save for this session</button>
+      </div>
+      <div class="smallnote" style="margin-top:6px">
+        Token is kept only in this browser tab (sessionStorage) and used only to start the smart-scan workflow. Closing the tab forgets it.
+      </div>
+    </details>
+  </div>
+
+  <div class="chips" id="chips"></div>
+  <div class="health" id="health"></div>
+  <div id="groups"></div>
+</div>
+<footer>Times shown in Pakistan time (PKT, UTC+5). Auto scans run twice daily &amp; are free; smart scan is optional and paid.</footer>
+
+<script id="appdata" type="application/json">{"generated_utc": "2026-07-22T06:36:32+00:00", "last_mode": "A", "timezone": "Asia/Karachi", "smart_configured": false, "competitions": [{"id": "https://www.bitget.com/support/articles/12560603889236", "name": "CandyBomb x EVAA: Trade to share 80,000 USDT", "venue": "Bitget", "type": "spot", "prize": null, "start_utc": "2026-07-14T11:00:00+00:00", "end_utc": "2026-07-15T08:00:00+00:00", "date_confidence": "confirmed", "structure": null, "entry": null, "eligibility": null, "fee": null, "official_link": "https://www.bitget.com/support/articles/12560603889236", "source": "Bitget (exchange)", "first_seen_utc": "2026-07-22T06:36:32+00:00", "note": null, "tier": "A", "classify_reason": "include 'trade to share'", "published_utc": null, "last_seen_utc": "2026-07-22T06:36:32+00:00", "is_new": true, "hours_left": -166.61, "ended": true, "ends_soon": false}, {"id": "https://trustwallet.com/en/blog/campaigns/ondo-trading-competition-trade-tokenized-stocks-on-bnb-chain-for-0-fees", "name": "Ondo Trading Competition: trade tokenized stocks on BNB Chain for 0% fees, share $100,000 We're excited to introduce the Ondo Trading Competition on Trust Wallet: a two-phase event where your trading activity can earn you a share of $100,000 in rewards. Not available to residents of certain countries and regions.", "venue": "Trust Wallet", "type": "onchain", "prize": null, "start_utc": "2026-07-10T00:00:00+00:00", "end_utc": "2026-07-17T00:00:00+00:00", "date_confidence": "confirmed", "structure": null, "entry": null, "eligibility": null, "fee": null, "official_link": "https://trustwallet.com/en/blog/campaigns/ondo-trading-competition-trade-tokenized-stocks-on-bnb-chain-for-0-fees", "source": "Trust Wallet", "first_seen_utc": "2026-07-22T06:36:32+00:00", "note": null, "tier": "A", "classify_reason": "include 'trading competition'", "published_utc": null, "last_seen_utc": "2026-07-22T06:36:32+00:00", "is_new": true, "hours_left": -126.61, "ended": true, "ends_soon": false}, {"id": "https://trustwallet.com/en/blog/campaigns/trust-wallet-symbiosis-crosschain-swap-giveaway", "name": "Trust Wallet x Symbiosis: $50,000 in SIS & USDC Cross-Chain Swap Giveaway Join us in celebrating our collaboration with Symbiosis! We're excited to launch an exciting giveaway with a $50,000 in $USDC and $SIS prize pool to reward our users who explore cross-chain swaps using Symbiosis.\nThere’s more than 850 chances to win and three ways to participate! Read on to find how you can enter.", "venue": "Trust Wallet", "type": "onchain", "prize": null, "start_utc": "2024-02-02T00:00:00+00:00", "end_utc": "2026-07-17T00:00:00+00:00", "date_confidence": "confirmed", "structure": null, "entry": null, "eligibility": null, "fee": null, "official_link": "https://trustwallet.com/en/blog/campaigns/trust-wallet-symbiosis-crosschain-swap-giveaway", "source": "Trust Wallet", "first_seen_utc": "2026-07-22T06:36:32+00:00", "note": null, "tier": "A", "classify_reason": "include 'prize pool'", "published_utc": null, "last_seen_utc": "2026-07-22T06:36:32+00:00", "is_new": true, "hours_left": -126.61, "ended": true, "ends_soon": false}, {"id": "https://www.kucoin.com/web3/support/48142946142233", "name": "KuCoin Web3 Wallet x AI-Powered Auction: Win a Share of 200,000 AUC", "venue": "KuCoin Web3 Wallet", "type": "onchain", "prize": null, "start_utc": "2026-06-17T00:00:00+00:00", "end_utc": "2026-07-17T00:00:00+00:00", "date_confidence": "confirmed", "structure": null, "entry": null, "eligibility": null, "fee": null, "official_link": "https://www.kucoin.com/web3/support/48142946142233", "source": "KuCoin Web3 Wallet", "first_seen_utc": "2026-07-22T06:36:32+00:00", "note": null, "tier": "A", "classify_reason": "score 2 (share of, win a share)", "published_utc": null, "last_seen_utc": "2026-07-22T06:36:32+00:00", "is_new": true, "hours_left": -126.61, "ended": true, "ends_soon": false}, {"id": "https://www.kucoin.com/web3/support/48142946142289", "name": "KuCoin Web3 Wallet x Robinhood Chain Joint Airdrop: Swap & Share up to 5,000 USDC!", "venue": "KuCoin Web3 Wallet", "type": "onchain", "prize": null, "start_utc": "2026-07-14T00:00:00+00:00", "end_utc": "2026-07-20T00:00:00+00:00", "date_confidence": "confirmed", "structure": null, "entry": null, "eligibility": null, "fee": null, "official_link": "https://www.kucoin.com/web3/support/48142946142289", "source": "KuCoin Web3 Wallet", "first_seen_utc": "2026-07-22T06:36:32+00:00", "note": null, "tier": "A", "classify_reason": "include 'swap & share'", "published_utc": null, "last_seen_utc": "2026-07-22T06:36:32+00:00", "is_new": true, "hours_left": -54.61, "ended": true, "ends_soon": false}, {"id": "https://www.bitget.com/support/articles/12560603889633", "name": "CandyBomb x XAUT: Trade futures to share 3 XAUT!", "venue": "Bitget", "type": "mixed", "prize": null, "start_utc": "2026-07-20T00:00:00+00:00", "end_utc": "2026-07-20T04:00:00+00:00", "date_confidence": "confirmed", "structure": null, "entry": null, "eligibility": null, "fee": null, "official_link": "https://www.bitget.com/support/articles/12560603889633", "source": "Bitget (exchange)", "first_seen_utc": "2026-07-22T06:36:32+00:00", "note": null, "tier": "A", "classify_reason": "spot signal + exclude(futures) -> mixed", "published_utc": null, "last_seen_utc": "2026-07-22T06:36:32+00:00", "is_new": true, "hours_left": -50.61, "ended": true, "ends_soon": false}, {"id": "https://announcements.bybit.com/en-US/article/bybit-arcium-arx-hotspot-1-000-usdt-up-for-grabs--artd670baf7f7ec", "name": "Bybit Arcium ($ARX) Hotspot : 1,000 $USDT Up For Grabs!", "venue": "Bybit", "type": "mixed", "prize": null, "start_utc": "2026-07-10T14:44:00+00:00", "end_utc": "2026-07-20T10:00:00+00:00", "date_confidence": "confirmed", "structure": null, "entry": null, "eligibility": null, "fee": null, "official_link": "https://announcements.bybit.com/en-US/article/bybit-arcium-arx-hotspot-1-000-usdt-up-for-grabs--artd670baf7f7ec/", "source": "Bybit (announcements API)", "first_seen_utc": "2026-07-22T06:36:32+00:00", "note": null, "tier": "A", "classify_reason": "spot signal + exclude(learn and earn) -> mixed", "published_utc": "2026-07-10T14:43:58+00:00", "last_seen_utc": "2026-07-22T06:36:32+00:00", "is_new": true, "hours_left": -44.61, "ended": true, "ends_soon": false}, {"id": "https://www.bitget.com/support/articles/12560603889855", "name": "CandyBomb x rGOOGL: Trade futures to share 35 rGOOGL!", "venue": "Bitget", "type": "mixed", "prize": null, "start_utc": "2026-07-21T00:00:00+00:00", "end_utc": "2026-07-21T04:00:00+00:00", "date_confidence": "confirmed", "structure": null, "entry": null, "eligibility": null, "fee": null, "official_link": "https://www.bitget.com/support/articles/12560603889855", "source": "Bitget (exchange)", "first_seen_utc": "2026-07-22T06:36:32+00:00", "note": null, "tier": "A", "classify_reason": "spot signal + exclude(futures) -> mixed", "published_utc": null, "last_seen_utc": "2026-07-22T06:36:32+00:00", "is_new": true, "hours_left": -26.61, "ended": true, "ends_soon": false}, {"id": "https://announcements.bybit.com/en-US/article/spot-trading-arena-pick-your-pair-and-compete-for-a-share-of-200-000-usdt--art688c93e839f6", "name": "Spot Trading Arena: Pick your pair and compete for a share of 200,000 USDT", "venue": "Bybit", "type": "spot", "prize": "200,000 USDT", "start_utc": "2026-07-10T00:00:00+00:00", "end_utc": "2026-07-31T00:00:00+00:00", "date_confidence": "confirmed", "structure": null, "entry": null, "eligibility": null, "fee": null, "official_link": "https://announcements.bybit.com/en-US/article/spot-trading-arena-pick-your-pair-and-compete-for-a-share-of-200-000-usdt--art688c93e839f6/", "source": "Bybit (announcements API)", "first_seen_utc": "2026-07-22T06:36:32+00:00", "note": null, "tier": "A", "classify_reason": "include 'spot'", "published_utc": "2026-07-10T00:00:00+00:00", "last_seen_utc": "2026-07-22T06:36:32+00:00", "is_new": true, "hours_left": 209.39, "ended": false, "ends_soon": false}, {"id": "https://www.bitget.com/support/articles/12560603889270", "name": "MEA Assemble: Buy Crypto & Trade to Share 10,000 USDT!", "venue": "Bitget", "type": "spot", "prize": null, "start_utc": "2026-07-16T11:00:00+00:00", "end_utc": "2026-08-06T00:00:00+00:00", "date_confidence": "unverified", "structure": null, "entry": null, "eligibility": null, "fee": null, "official_link": "https://www.bitget.com/support/articles/12560603889270", "source": "Bitget (exchange)", "first_seen_utc": "2026-07-22T06:36:32+00:00", "note": null, "tier": "A", "classify_reason": "include 'trade to share'", "published_utc": null, "last_seen_utc": "2026-07-22T06:36:32+00:00", "is_new": true, "hours_left": 353.39, "ended": false, "ends_soon": false}, {"id": "https://www.kucoin.com/web3/support/48142946142281", "name": "KuCoin Web3 Wallet x Glunity Coin: Win a 1,818,182 GLUN Prize Pool", "venue": "KuCoin Web3 Wallet", "type": "onchain", "prize": null, "start_utc": "2026-07-09T00:00:00+00:00", "end_utc": "2026-08-09T00:00:00+00:00", "date_confidence": "confirmed", "structure": null, "entry": null, "eligibility": null, "fee": null, "official_link": "https://www.kucoin.com/web3/support/48142946142281", "source": "KuCoin Web3 Wallet", "first_seen_utc": "2026-07-22T06:36:32+00:00", "note": null, "tier": "A", "classify_reason": "include 'prize pool'", "published_utc": null, "last_seen_utc": "2026-07-22T06:36:32+00:00", "is_new": true, "hours_left": 425.39, "ended": false, "ends_soon": false}, {"id": "https://announcements.bybit.com/en-US/article/vietnam-exclusive-all-market-showdown-3-in-1-trading-competition-win-a-share-of-330-000--art63238b00d651", "name": "[Vietnam Exclusive] All-Market Showdown: 3-in-1 Trading Competition – Win a Share of $330,000", "venue": "Bybit", "type": "spot", "prize": "$330,000", "start_utc": "2026-07-16T18:00:00+00:00", "end_utc": "2026-08-16T18:00:00+00:00", "date_confidence": "confirmed", "structure": null, "entry": null, "eligibility": null, "fee": null, "official_link": "https://announcements.bybit.com/en-US/article/vietnam-exclusive-all-market-showdown-3-in-1-trading-competition-win-a-share-of-330-000--art63238b00d651/", "source": "Bybit (announcements API)", "first_seen_utc": "2026-07-22T06:36:32+00:00", "note": null, "tier": "A", "classify_reason": "include 'trading competition'", "published_utc": "2026-07-16T18:00:00+00:00", "last_seen_utc": "2026-07-22T06:36:32+00:00", "is_new": true, "hours_left": 611.39, "ended": false, "ends_soon": false}, {"id": "https://announcements.bybit.com/en-US/article/bybit-dual-asset-trading-challenge-win-up-to-2-500-usdt-every-2-weeks-blt16ac62c659b66d51", "name": "Bybit Dual Asset Trading Challenge: Win up to 2,500 USDT every 2 weeks", "venue": "Bybit", "type": "spot", "prize": "2,500 USDT", "start_utc": "2026-07-06T10:00:00+00:00", "end_utc": "2026-08-31T00:00:00+00:00", "date_confidence": "confirmed", "structure": null, "entry": null, "eligibility": null, "fee": null, "official_link": "https://announcements.bybit.com/en-US/article/bybit-dual-asset-trading-challenge-win-up-to-2-500-usdt-every-2-weeks-blt16ac62c659b66d51/", "source": "Bybit (announcements API)", "first_seen_utc": "2026-07-22T06:36:32+00:00", "note": null, "tier": "A", "classify_reason": "include 'trading challenge'", "published_utc": "2026-07-06T10:00:00+00:00", "last_seen_utc": "2026-07-22T06:36:32+00:00", "is_new": true, "hours_left": 953.39, "ended": false, "ends_soon": false}, {"id": "https://www.binance.com/en/support/announcement/b718aecb004740a6a5c5a7290fe70744", "name": "Binance Alpha Trading Competition: Trade QAIT (QAIT) and Share $200K Worth of Rewards (2026-07-21)", "venue": "Binance", "type": "spot", "prize": "$200K", "start_utc": "2026-07-21T00:00:00+00:00", "end_utc": null, "date_confidence": "unverified", "structure": null, "entry": null, "eligibility": null, "fee": null, "official_link": "https://www.binance.com/en/support/announcement/b718aecb004740a6a5c5a7290fe70744", "source": "Binance (Spot + Alpha)", "first_seen_utc": "2026-07-22T06:36:32+00:00", "note": null, "tier": "A", "classify_reason": "include 'trading competition'", "published_utc": "2026-07-21T11:00:16+00:00", "last_seen_utc": "2026-07-22T06:36:32+00:00", "is_new": true, "hours_left": null, "ended": false, "ends_soon": false}, {"id": "https://www.binance.com/en/support/announcement/d47df231285949a6ae6c7b4869d697db", "name": "AERO Trading Tournament: Trade to Share Up to 400,000 USDC Token Vouchers", "venue": "Binance", "type": "spot", "prize": "400,000 USDC", "start_utc": null, "end_utc": null, "date_confidence": "unverified", "structure": null, "entry": null, "eligibility": null, "fee": null, "official_link": "https://www.binance.com/en/support/announcement/d47df231285949a6ae6c7b4869d697db", "source": "Binance (Spot + Alpha)", "first_seen_utc": "2026-07-22T06:36:32+00:00", "note": null, "tier": "A", "classify_reason": "include 'trade to share'", "published_utc": "2026-07-21T09:00:03+00:00", "last_seen_utc": "2026-07-22T06:36:32+00:00", "is_new": true, "hours_left": null, "ended": false, "ends_soon": false}, {"id": "https://www.binance.com/en/support/announcement/d068e8f364f04eca9cc506f5a13a66d9", "name": "OPN Trading Tournament Round II: Trade to Share Up to 5,000,000 OPN Token Vouchers", "venue": "Binance", "type": "spot", "prize": null, "start_utc": null, "end_utc": null, "date_confidence": "unverified", "structure": null, "entry": null, "eligibility": null, "fee": null, "official_link": "https://www.binance.com/en/support/announcement/d068e8f364f04eca9cc506f5a13a66d9", "source": "Binance (Spot + Alpha)", "first_seen_utc": "2026-07-22T06:36:32+00:00", "note": null, "tier": "A", "classify_reason": "include 'trade to share'", "published_utc": "2026-07-17T09:00:12+00:00", "last_seen_utc": "2026-07-22T06:36:32+00:00", "is_new": true, "hours_left": null, "ended": false, "ends_soon": false}, {"id": "https://www.binance.com/en/support/announcement/ad6b0fb9b2fa4671bb02346fbff2b6c2", "name": "KITE Trading Tournament: Trade to Share Up to 5,000,000 KITE Token Vouchers", "venue": "Binance", "type": "spot", "prize": null, "start_utc": null, "end_utc": null, "date_confidence": "unverified", "structure": null, "entry": null, "eligibility": null, "fee": null, "official_link": "https://www.binance.com/en/support/announcement/ad6b0fb9b2fa4671bb02346fbff2b6c2", "source": "Binance (Spot + Alpha)", "first_seen_utc": "2026-07-22T06:36:32+00:00", "note": null, "tier": "A", "classify_reason": "include 'trade to share'", "published_utc": "2026-07-16T09:00:03+00:00", "last_seen_utc": "2026-07-22T06:36:32+00:00", "is_new": true, "hours_left": null, "ended": false, "ends_soon": false}, {"id": "https://www.binance.com/en/support/announcement/0d76f6a8091c41b28b45e914174cebde", "name": "Limited-Time: Earn 3x Volume Toward Binance Affiliate Spot Evaluation with bStocks", "venue": "Binance", "type": "spot", "prize": null, "start_utc": null, "end_utc": null, "date_confidence": "unverified", "structure": null, "entry": null, "eligibility": null, "fee": null, "official_link": "https://www.binance.com/en/support/announcement/0d76f6a8091c41b28b45e914174cebde", "source": "Binance (Spot + Alpha)", "first_seen_utc": "2026-07-22T06:36:32+00:00", "note": null, "tier": "A", "classify_reason": "include 'spot'", "published_utc": "2026-07-16T04:00:10+00:00", "last_seen_utc": "2026-07-22T06:36:32+00:00", "is_new": true, "hours_left": null, "ended": false, "ends_soon": false}, {"id": "https://www.binance.com/en/support/announcement/f99ae2a115d34c32a40522ea3398f787", "name": "Binance Alpha Trading Competition: Trade Bluwhale (BLUAI) and Share $300K Worth of Rewards (2026-07-15)", "venue": "Binance", "type": "spot", "prize": "$300K", "start_utc": "2026-07-15T00:00:00+00:00", "end_utc": null, "date_confidence": "unverified", "structure": null, "entry": null, "eligibility": null, "fee": null, "official_link": "https://www.binance.com/en/support/announcement/f99ae2a115d34c32a40522ea3398f787", "source": "Binance (Spot + Alpha)", "first_seen_utc": "2026-07-22T06:36:32+00:00", "note": null, "tier": "A", "classify_reason": "include 'trading competition'", "published_utc": "2026-07-15T11:00:54+00:00", "last_seen_utc": "2026-07-22T06:36:32+00:00", "is_new": true, "hours_left": null, "ended": false, "ends_soon": false}, {"id": "https://www.bitget.com/support/articles/12560603889268", "name": "Crypto Loans Carnival round 27: Get up to a 25% APR discount on Crypto Loans, plus unlock VIP tiered rewards for net loans increase!", "venue": "Bitget", "type": "spot", "prize": null, "start_utc": null, "end_utc": null, "date_confidence": "unverified", "structure": null, "entry": null, "eligibility": null, "fee": null, "official_link": "https://www.bitget.com/support/articles/12560603889268", "source": "Bitget (exchange)", "first_seen_utc": "2026-07-22T06:36:32+00:00", "note": null, "tier": "A", "classify_reason": "include 'carnival'", "published_utc": null, "last_seen_utc": "2026-07-22T06:36:32+00:00", "is_new": true, "hours_left": null, "ended": false, "ends_soon": false}, {"id": "https://www.bitget.com/support/articles/12560603889198", "name": "Bitget launches zero-fee promotion for USDGO/USDT and USDC/USDT spot margin trading", "venue": "Bitget", "type": "spot", "prize": null, "start_utc": null, "end_utc": null, "date_confidence": "unverified", "structure": null, "entry": null, "eligibility": null, "fee": null, "official_link": "https://www.bitget.com/support/articles/12560603889198", "source": "Bitget (exchange)", "first_seen_utc": "2026-07-22T06:36:32+00:00", "note": null, "tier": "A", "classify_reason": "include 'spot'", "published_utc": null, "last_seen_utc": "2026-07-22T06:36:32+00:00", "is_new": true, "hours_left": null, "ended": false, "ends_soon": false}, {"id": "https://trustwallet.com/en/blog/campaigns/bstocks-trading-competition-rewards", "name": "bStocks Trading Competition rewards are here: claim yours on Merkl The bStocks Trading Competition has officially concluded, and rewards are now available to claim on Merkle.", "venue": "Trust Wallet", "type": "spot", "prize": null, "start_utc": null, "end_utc": null, "date_confidence": "unverified", "structure": null, "entry": null, "eligibility": null, "fee": null, "official_link": "https://trustwallet.com/en/blog/campaigns/bstocks-trading-competition-rewards", "source": "Trust Wallet", "first_seen_utc": "2026-07-22T06:36:32+00:00", "note": null, "tier": "A", "classify_reason": "include 'trading competition'", "published_utc": null, "last_seen_utc": "2026-07-22T06:36:32+00:00", "is_new": true, "hours_left": null, "ended": false, "ends_soon": false}, {"id": "https://trustwallet.com/en/blog/campaigns/u-campaign-is-live-on-trust-wallet-earn-up-to-25-apy-and-compete-for-bonus-rewards", "name": "$U Campaign Is Live on Trust Wallet: Earn Up to 25% APY and Compete for Bonus Rewards United Stables is launching its first campaign on Trust Wallet, and we're making it worth your while. From May 21–31, swap to $U and compete for a share of a $20,000 prize pool, with the top wallet taking home $700. Already holding $U? Deposit into Stablecoin Earn for a boosted APY of up to 25%.", "venue": "Trust Wallet", "type": "onchain", "prize": null, "start_utc": null, "end_utc": null, "date_confidence": "unverified", "structure": null, "entry": null, "eligibility": null, "fee": null, "official_link": "https://trustwallet.com/en/blog/campaigns/u-campaign-is-live-on-trust-wallet-earn-up-to-25-apy-and-compete-for-bonus-rewards", "source": "Trust Wallet", "first_seen_utc": "2026-07-22T06:36:32+00:00", "note": null, "tier": "A", "classify_reason": "include 'prize pool'", "published_utc": null, "last_seen_utc": "2026-07-22T06:36:32+00:00", "is_new": true, "hours_left": null, "ended": false, "ends_soon": false}, {"id": "https://www.kucoin.com/web3/support/48142946141597", "name": "KuCoin Web3 Wallet Perps Trading Campaign: Trade to Share 10,000 USDC", "venue": "KuCoin Web3 Wallet", "type": "mixed", "prize": null, "start_utc": null, "end_utc": null, "date_confidence": "unverified", "structure": null, "entry": null, "eligibility": null, "fee": null, "official_link": "https://www.kucoin.com/web3/support/48142946141597", "source": "KuCoin Web3 Wallet", "first_seen_utc": "2026-07-22T06:36:32+00:00", "note": null, "tier": "A", "classify_reason": "spot signal + exclude(perp) -> mixed", "published_utc": null, "last_seen_utc": "2026-07-22T06:36:32+00:00", "is_new": true, "hours_left": null, "ended": false, "ends_soon": false}, {"id": "https://www.kucoin.com/web3/support/48142946141577", "name": "KuCoin Web3 Wallet Perps Public Test: Trade to Share 10,000 USDC", "venue": "KuCoin Web3 Wallet", "type": "mixed", "prize": null, "start_utc": null, "end_utc": null, "date_confidence": "unverified", "structure": null, "entry": null, "eligibility": null, "fee": null, "official_link": "https://www.kucoin.com/web3/support/48142946141577", "source": "KuCoin Web3 Wallet", "first_seen_utc": "2026-07-22T06:36:32+00:00", "note": null, "tier": "A", "classify_reason": "spot signal + exclude(perp) -> mixed", "published_utc": null, "last_seen_utc": "2026-07-22T06:36:32+00:00", "is_new": true, "hours_left": null, "ended": false, "ends_soon": false}, {"id": "https://www.kucoin.com/web3/support/48142946141562", "name": "KuCoin Web3 Wallet × Zama Spotlight Main-Phase: Share 100,000 $ZAMA", "venue": "KuCoin Web3 Wallet", "type": "onchain", "prize": null, "start_utc": null, "end_utc": null, "date_confidence": "unverified", "structure": null, "entry": null, "eligibility": null, "fee": null, "official_link": "https://www.kucoin.com/web3/support/48142946141562", "source": "KuCoin Web3 Wallet", "first_seen_utc": "2026-07-22T06:36:32+00:00", "note": null, "tier": "A", "classify_reason": "include 'spot'", "published_utc": null, "last_seen_utc": "2026-07-22T06:36:32+00:00", "is_new": true, "hours_left": null, "ended": false, "ends_soon": false}, {"id": "https://www.kucoin.com/web3/support/48142946141547", "name": "KuCoin Web3 Wallet x Zama: Spotlight Campaign Warm-up", "venue": "KuCoin Web3 Wallet", "type": "onchain", "prize": null, "start_utc": null, "end_utc": null, "date_confidence": "unverified", "structure": null, "entry": null, "eligibility": null, "fee": null, "official_link": "https://www.kucoin.com/web3/support/48142946141547", "source": "KuCoin Web3 Wallet", "first_seen_utc": "2026-07-22T06:36:32+00:00", "note": null, "tier": "A", "classify_reason": "include 'spot'", "published_utc": null, "last_seen_utc": "2026-07-22T06:36:32+00:00", "is_new": true, "hours_left": null, "ended": false, "ends_soon": false}, {"id": "https://www.kucoin.com/web3/support/48142946141451", "name": "KuCoin Web3 Wallet x Cysic: Swap to Share 20,000 CYS", "venue": "KuCoin Web3 Wallet", "type": "onchain", "prize": null, "start_utc": null, "end_utc": null, "date_confidence": "unverified", "structure": null, "entry": null, "eligibility": null, "fee": null, "official_link": "https://www.kucoin.com/web3/support/48142946141451", "source": "KuCoin Web3 Wallet", "first_seen_utc": "2026-07-22T06:36:32+00:00", "note": null, "tier": "A", "classify_reason": "include 'swap to share'", "published_utc": null, "last_seen_utc": "2026-07-22T06:36:32+00:00", "is_new": true, "hours_left": null, "ended": false, "ends_soon": false}, {"id": "https://www.kucoin.com/web3/support/48142946141353", "name": "Join the Mario Challenge Phase 9 to Share a $15,000 Prize Pool", "venue": "KuCoin Web3 Wallet", "type": "spot", "prize": null, "start_utc": null, "end_utc": null, "date_confidence": "unverified", "structure": null, "entry": null, "eligibility": null, "fee": null, "official_link": "https://www.kucoin.com/web3/support/48142946141353", "source": "KuCoin Web3 Wallet", "first_seen_utc": "2026-07-22T06:36:32+00:00", "note": null, "tier": "A", "classify_reason": "include 'prize pool'", "published_utc": null, "last_seen_utc": "2026-07-22T06:36:32+00:00", "is_new": true, "hours_left": null, "ended": false, "ends_soon": false}, {"id": "https://coin98.com/blog/swapx-summer-festival-swap-bridge-win-up-to-1-500-co", "name": "SwapX Summer Festival: Swap & Win Up to $1,500 From May 11 to May 25, Coin98 Wallet is launching the SwapX Summer Festival, a new swap campaign designed to reward users who swap across multiple chains, complete more transactions, and explore the multi-chain experience directly inside Coin98 Wallet. Coin98 Super Wallet May 11, 2026", "venue": "Coin98", "type": "onchain", "prize": null, "start_utc": "2026-05-11T00:00:00+00:00", "end_utc": null, "date_confidence": "unverified", "structure": null, "entry": null, "eligibility": null, "fee": null, "official_link": "https://coin98.com/blog/swapx-summer-festival-swap-bridge-win-up-to-1-500-co/", "source": "Coin98 Wallet", "first_seen_utc": "2026-07-22T06:36:32+00:00", "note": null, "tier": "A", "classify_reason": "include 'swap & win'", "published_utc": null, "last_seen_utc": "2026-07-22T06:36:32+00:00", "is_new": true, "hours_left": null, "ended": false, "ends_soon": false}, {"id": "https://trading-tournaments.com/tournaments/bybit-all-market-showdown-3-in-1-trading-competition-vietnam-2026-07", "name": "All-Market Showdown: 3-in-1 Trading Competition Vietnam 🇻🇳", "venue": "Bybit", "type": "spot", "prize": "$330,000", "start_utc": null, "end_utc": null, "date_confidence": "unverified", "structure": null, "entry": null, "eligibility": null, "fee": null, "official_link": "https://trading-tournaments.com/tournaments/bybit-all-market-showdown-3-in-1-trading-competition-vietnam-2026-07", "source": "trading-tournaments.com", "first_seen_utc": "2026-07-22T06:36:32+00:00", "note": null, "tier": "A", "classify_reason": "include 'trading competition'", "published_utc": null, "last_seen_utc": "2026-07-22T06:36:32+00:00", "is_new": true, "hours_left": null, "ended": false, "ends_soon": false}, {"id": "https://trading-tournaments.com/tournaments/toobit-football-meets-trading-opportunities-at-toobit-2026-06", "name": "Football meets trading opportunities at Toobit", "venue": "Toobit", "type": "spot", "prize": "1,000,000 USDT", "start_utc": null, "end_utc": null, "date_confidence": "unverified", "structure": null, "entry": null, "eligibility": null, "fee": null, "official_link": "https://trading-tournaments.com/tournaments/toobit-football-meets-trading-opportunities-at-toobit-2026-06", "source": "trading-tournaments.com", "first_seen_utc": "2026-07-22T06:36:32+00:00", "note": null, "tier": "caution", "classify_reason": "include 'spot'", "published_utc": null, "last_seen_utc": "2026-07-22T06:36:32+00:00", "is_new": true, "hours_left": null, "ended": false, "ends_soon": false}, {"id": "https://trading-tournaments.com/tournaments/binance-spot-trading-tournament-2026-07", "name": "Spot Trading Tournament", "venue": "Binance", "type": "spot", "prize": "500,000 USDC", "start_utc": null, "end_utc": null, "date_confidence": "unverified", "structure": null, "entry": null, "eligibility": null, "fee": null, "official_link": "https://trading-tournaments.com/tournaments/binance-spot-trading-tournament-2026-07", "source": "trading-tournaments.com", "first_seen_utc": "2026-07-22T06:36:32+00:00", "note": null, "tier": "A", "classify_reason": "include 'trade to share'", "published_utc": null, "last_seen_utc": "2026-07-22T06:36:32+00:00", "is_new": true, "hours_left": null, "ended": false, "ends_soon": false}, {"id": "https://trading-tournaments.com/tournaments/bybit-spot-trading-arena-2026-07", "name": "Spot Trading Arena", "venue": "Bybit", "type": "spot", "prize": "200,000 USDT", "start_utc": null, "end_utc": null, "date_confidence": "unverified", "structure": null, "entry": null, "eligibility": null, "fee": null, "official_link": "https://trading-tournaments.com/tournaments/bybit-spot-trading-arena-2026-07", "source": "trading-tournaments.com", "first_seen_utc": "2026-07-22T06:36:32+00:00", "note": null, "tier": "A", "classify_reason": "include 'spot'", "published_utc": null, "last_seen_utc": "2026-07-22T06:36:32+00:00", "is_new": true, "hours_left": null, "ended": false, "ends_soon": false}, {"id": "https://trading-tournaments.com/tournaments/kucoin-conflux-carnival-2026-06", "name": "Conflux Carnival", "venue": "KuCoin", "type": "spot", "prize": "60,000 USDT", "start_utc": null, "end_utc": null, "date_confidence": "unverified", "structure": null, "entry": null, "eligibility": null, "fee": null, "official_link": "https://trading-tournaments.com/tournaments/kucoin-conflux-carnival-2026-06", "source": "trading-tournaments.com", "first_seen_utc": "2026-07-22T06:36:32+00:00", "note": null, "tier": "A", "classify_reason": "include 'spot'", "published_utc": null, "last_seen_utc": "2026-07-22T06:36:32+00:00", "is_new": true, "hours_left": null, "ended": false, "ends_soon": false}, {"id": "https://trading-tournaments.com/tournaments/wctc-2026-forex-division-world-cup-championship-of-forex-trading-2026-01", "name": "2026 Forex Division — World Cup Championship of Forex Trading", "venue": "Robbins WCTC", "type": "mixed", "prize": "$5,000 m", "start_utc": "2026-12-31T00:00:00+00:00", "end_utc": null, "date_confidence": "unverified", "structure": null, "entry": null, "eligibility": null, "fee": null, "official_link": "https://trading-tournaments.com/tournaments/wctc-2026-forex-division-world-cup-championship-of-forex-trading-2026-01", "source": "trading-tournaments.com", "first_seen_utc": "2026-07-22T06:36:32+00:00", "note": null, "tier": "caution", "classify_reason": "spot signal + exclude(futures) -> mixed", "published_utc": null, "last_seen_utc": "2026-07-22T06:36:32+00:00", "is_new": true, "hours_left": null, "ended": false, "ends_soon": false}], "source_health": [{"source": "Binance (Spot + Alpha)", "venue": "Binance", "method": "json_api", "reliability": "mixed", "status": "ok", "fetched_at": "2026-07-22T06:36:33+00:00", "newest_item_date": "2026-07-21T11:00:16+00:00", "url": "https://www.binance.com/bapi/composite/v1/public/cms/article/list/query?type=1&pageNo=1&pageSize=20&catalogId=93", "error": null, "kept": 8, "seen_raw": 20}, {"source": "Bybit (announcements API)", "venue": "Bybit", "method": "bybit_api", "reliability": "solid", "status": "ok", "fetched_at": "2026-07-22T06:36:34+00:00", "newest_item_date": "2026-07-20T10:00:00+00:00", "url": "https://api.bybit.com/v5/announcements/index?locale=en-US&type=latest_activities&limit=30", "error": null, "kept": 4, "seen_raw": 30}, {"source": "Gate (exchange + Web3 Wallet)", "venue": "Gate", "method": "html", "reliability": "mixed", "status": "blocked", "fetched_at": "2026-07-22T06:36:41+00:00", "newest_item_date": null, "url": "https://www.gate.com/announcements/activity", "error": "HTTP 403; access-denied/challenge page"}, {"source": "OKX (exchange)", "venue": "OKX", "method": "html", "reliability": "shaky", "status": "blocked", "fetched_at": "2026-07-22T06:36:58+00:00", "newest_item_date": null, "url": "https://www.okx.com/help/section/announcements-latest-announcements", "error": "ConnectionError; playwright: Page.goto: net::ERR_CONNECTION_RESET at https://www.okx.com/help/section/announcements-latest-announcements\nCall log:\n  - navigating to \"htt"}, {"source": "KuCoin (exchange)", "venue": "KuCoin", "method": "json_api", "reliability": "solid", "status": "ok", "fetched_at": "2026-07-22T06:36:59+00:00", "newest_item_date": "2026-07-22T14:09:00+00:00", "url": "https://www.kucoin.com/_api/cms/articles?page=1&pageSize=20&lang=en_US", "error": null, "kept": 0, "seen_raw": 20}, {"source": "Bitget (exchange)", "venue": "Bitget", "method": "html", "reliability": "solid", "status": "ok", "fetched_at": "2026-07-22T06:37:00+00:00", "newest_item_date": null, "url": "https://www.bitget.com/support/sections/4413154768537", "error": null, "kept": 9, "seen_raw": 20}, {"source": "Trust Wallet", "venue": "Trust Wallet", "method": "playwright", "reliability": "mixed", "status": "ok", "fetched_at": "2026-07-22T06:37:07+00:00", "newest_item_date": null, "url": "https://trustwallet.com/blog/campaigns", "error": null, "kept": 6, "seen_raw": 13}, {"source": "Bitget Wallet (Telegram)", "venue": "Bitget Wallet", "method": "telegram", "reliability": "shaky", "status": "failed", "fetched_at": "2026-07-22T06:39:37+00:00", "newest_item_date": null, "url": "https://t.me/s/Bitget_Wallet_Announcement", "error": "ReadTimeout; playwright: Page.goto: Timeout 45000ms exceeded.\nCall log:\n  - navigating to \"https://t.me/s/Bitget_Wallet_Announcement?_cb=1784702331\", waiting until \""}, {"source": "OKX Web3 Wallet", "venue": "OKX Web3 Wallet", "method": "playwright", "reliability": "mixed", "status": "ok", "fetched_at": "2026-07-22T06:39:45+00:00", "newest_item_date": null, "url": "https://web3.okx.com/boost/x-campaign", "error": null, "kept": 0, "seen_raw": 2}, {"source": "KuCoin Web3 Wallet", "venue": "KuCoin Web3 Wallet", "method": "html", "reliability": "solid", "status": "ok", "fetched_at": "2026-07-22T06:39:46+00:00", "newest_item_date": null, "url": "https://www.kucoin.com/web3/support/categories/47134508281624", "error": null, "kept": 29, "seen_raw": 107}, {"source": "Coin98 Wallet", "venue": "Coin98", "method": "html", "reliability": "mixed", "status": "ok", "fetched_at": "2026-07-22T06:39:47+00:00", "newest_item_date": null, "url": "https://coin98.com/blog/tag/campaigns-events/", "error": null, "kept": 1, "seen_raw": 9}, {"source": "1inch Wallet", "venue": "1inch Wallet", "method": "html", "reliability": "shaky", "status": "ok", "fetched_at": "2026-07-22T06:39:48+00:00", "newest_item_date": null, "url": "https://1inch.com/blog/tag/contests/", "error": null, "kept": 0, "seen_raw": 3}, {"source": "trading-tournaments.com", "venue": "aggregator", "method": "html", "reliability": "mixed", "status": "ok", "fetched_at": "2026-07-22T06:39:49+00:00", "newest_item_date": null, "url": "https://trading-tournaments.com/tournaments/competitions", "error": null, "kept": 6, "seen_raw": 9}]}</script>
+<script id="appconsts" type="application/json">{"amberHours": 72, "redHours": 24, "chipHours": 48, "smartConfigured": false, "models": [{"id": "haiku", "label": "Haiku (~$0.05–0.15/scan)"}, {"id": "sonnet", "label": "Sonnet (~$0.30–0.80/scan, smarter)"}]}</script>
+<script>
+(function(){
+  "use strict";
+  var DATA = JSON.parse(document.getElementById("appdata").textContent);
+  var C = JSON.parse(document.getElementById("appconsts").textContent);
+  var comps = (DATA.competitions||[]).slice();
+
+  function el(tag, cls){ var e=document.createElement(tag); if(cls) e.className=cls; return e; }
+  function txt(tag, cls, s){ var e=el(tag,cls); e.textContent=(s==null?"":String(s)); return e; }
+  function safeHref(u){ u=String(u||""); return /^https?:\/\//i.test(u)? u : "#"; }
+
+  function fmtPKT(iso){
+    if(!iso) return "date TBD";
+    var d=new Date(iso); if(isNaN(d)) return "date TBD";
+    // Force UTC+5 display regardless of viewer's own zone.
+    var pk=new Date(d.getTime()+5*3600*1000);
+    var mon=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][pk.getUTCMonth()];
+    var h=pk.getUTCHours(), m=pk.getUTCMinutes();
+    var ap=h>=12?"PM":"AM"; var h12=h%12; if(h12===0) h12=12;
+    return pk.getUTCDate()+" "+mon+", "+h12+":"+(m<10?"0":"")+m+" "+ap+" PKT";
+  }
+  function hoursLeft(iso){ if(!iso) return null; var d=new Date(iso); if(isNaN(d)) return null;
+    return (d.getTime()-Date.now())/3600000; }
+  function countdown(iso){
+    var hl=hoursLeft(iso);
+    if(hl===null) return {cls:"grey",label:"dates TBD"};
+    if(hl<=0) return {cls:"grey",label:"ENDED"};
+    var cls = hl<=C.redHours?"red":(hl<=C.amberHours?"amber":"green");
+    var d=Math.floor(hl/24), h=Math.floor(hl%24), mm=Math.floor((hl*60)%60);
+    var label = d>0? (d+"d "+h+"h") : (h>0? (h+"h "+mm+"m") : (mm+"m"));
+    return {cls:cls,label:label+" left"};
+  }
+
+  // ---- filters ----
+  var FILTERS=[
+    {id:"all",label:"All"},
+    {id:"soon",label:"Ending <"+C.chipHours+"h"},
+    {id:"onchain",label:"Onchain"},
+    {id:"cex",label:"CEX spot"},
+    {id:"safe",label:"Safe (Tier-A)"},
+    {id:"new",label:"New"}
+  ];
+  var active="all";
+  function pass(c){
+    if(active==="all") return true;
+    if(active==="soon"){var hl=hoursLeft(c.end_utc); return hl!==null&&hl>0&&hl<=C.chipHours;}
+    if(active==="onchain") return c.type==="onchain";
+    if(active==="cex") return c.type==="spot"||c.type==="mixed";
+    if(active==="safe") return c.tier==="A";
+    if(active==="new") return !!c.is_new;
+    return true;
+  }
+
+  function badge(cls,label){ return txt("span","b "+cls,label); }
+
+  function card(c){
+    var box=el("div","card"+(c.tier==="avoid"?" avoid":""));
+    var cd=countdown(c.end_utc);
+    var cdEl=txt("span","cd "+cd.cls,cd.label); cdEl.setAttribute("data-end",c.end_utc||"");
+    box.appendChild(cdEl);
+    box.appendChild(txt("h3",null,c.name));
+
+    var badges=el("div","badges");
+    if(c.is_new) badges.appendChild(badge("new","NEW"));
+    if(c.type) badges.appendChild(badge(c.type,c.type.toUpperCase()));
+    var tierCls=c.tier==="A"?"tierA":(c.tier==="avoid"?"avoid":"caution");
+    var tierLbl=c.tier==="A"?"TIER-A SAFE":(c.tier==="avoid"?"⚠ AVOID":"CAUTION");
+    badges.appendChild(badge(tierCls,tierLbl));
+    box.appendChild(badges);
+
+    var venue=txt("div","meta",null); venue.appendChild(txt("b",null,c.venue||"?"));
+    if(c.prize){ venue.appendChild(document.createTextNode(" · "+c.prize)); }
+    box.appendChild(venue);
+
+    var period=el("div","meta");
+    period.appendChild(document.createTextNode("Runs: "+fmtPKT(c.start_utc)+" → "+fmtPKT(c.end_utc)));
+    box.appendChild(period);
+
+    [["Structure",c.structure],["Entry",c.entry],["Eligibility",c.eligibility],["Fee",c.fee]]
+      .forEach(function(kv){ if(kv[1]){ var m=el("div","meta");
+        m.appendChild(txt("b",null,kv[0]+": ")); m.appendChild(document.createTextNode(kv[1])); box.appendChild(m);} });
+
+    if(c.end_utc && c.date_confidence!=="confirmed")
+      box.appendChild(txt("div","warn","⚠ verify dates on official page"));
+    if(!c.end_utc)
+      box.appendChild(txt("div","warn","⚠ end date unknown — run smart scan or check official page"));
+
+    if(c.note){ box.appendChild(txt("div","note","🧠 "+c.note)); }
+
+    var a=el("a","open"); a.textContent="Open announcement";
+    a.href=safeHref(c.official_link); a.target="_blank"; a.rel="noopener noreferrer";
+    box.appendChild(a);
+    return box;
+  }
+
+  function render(){
+    var groups=document.getElementById("groups"); groups.textContent="";
+    var order=[["A","Tier-A · safe"],["caution","Caution"],["avoid","⚠ Avoid (not recommended)"]];
+    var shown=0;
+    order.forEach(function(g){
+      var list=comps.filter(function(c){return c.tier===g[0] && pass(c);});
+      // sort: live first, soonest end first, then unknown-date
+      list.sort(function(a,b){
+        var ha=hoursLeft(a.end_utc), hb=hoursLeft(b.end_utc);
+        var aa=(ha===null||ha<=0), bb=(hb===null||hb<=0);
+        if(aa!==bb) return aa?1:-1;
+        if(ha===null) return 1; if(hb===null) return -1;
+        return ha-hb;
+      });
+      if(!list.length) return;
+      groups.appendChild(txt("div","groupttl",g[1]+" ("+list.length+")"));
+      var grid=el("div","cards");
+      list.forEach(function(c){ grid.appendChild(card(c)); shown+=1; });
+      groups.appendChild(grid);
+    });
+    if(!shown){ var e=txt("div","empty","No competitions match this filter."); groups.appendChild(e); }
+  }
+
+  // ---- header + health ----
+  function head(){
+    var sub=document.getElementById("subline");
+    var gen=DATA.generated_utc? fmtPKT(DATA.generated_utc):"—";
+    var mode=DATA.last_mode==="B"?"B (smart / AI)":"A (auto / free)";
+    sub.textContent="Last updated "+gen+"  ·  last mode: "+mode+"  ·  "+comps.length+" competitions tracked";
+    var hl=hoursLeft(DATA.generated_utc);
+    if(hl!==null && hl < -26){ document.getElementById("hdr").className="stale";
+      sub.textContent+="  ·  ⚠ data looks stale (>26h old)"; }
+  }
+  function health(){
+    var box=document.getElementById("health"); box.textContent="";
+    (DATA.source_health||[]).forEach(function(h){
+      var p=txt("span","hpill "+(h.status||""), h.source+": "+(h.status||"?"));
+      if(h.error) p.title=h.error;
+      box.appendChild(p);
+    });
+  }
+  function chips(){
+    var box=document.getElementById("chips"); box.textContent="";
+    FILTERS.forEach(function(f){
+      var c=txt("span","chip",f.label);
+      c.setAttribute("aria-pressed", f.id===active?"true":"false");
+      c.setAttribute("role","button"); c.tabIndex=0;
+      function go(){ active=f.id; chips(); render(); }
+      c.addEventListener("click",go);
+      c.addEventListener("keydown",function(e){ if(e.key==="Enter"||e.key===" "){e.preventDefault();go();} });
+      box.appendChild(c);
+    });
+  }
+
+  // ---- live countdown refresh (every minute) ----
+  function tick(){
+    document.querySelectorAll(".cd").forEach(function(elm){
+      var iso=elm.getAttribute("data-end");
+      var cd=countdown(iso||null);
+      elm.className="cd "+cd.cls; elm.textContent=cd.label;
+    });
+  }
+
+  // ---- smart scan control ----
+  function initModels(){
+    var sel=document.getElementById("model");
+    C.models.forEach(function(m){ var o=el("option"); o.value=m.id; o.textContent=m.label; sel.appendChild(o); });
+    var repo=document.getElementById("repo"), token=document.getElementById("token");
+    repo.value=sessionStorage.getItem("ct_repo")||"";
+    token.value=sessionStorage.getItem("ct_token")?"":""; // never prefill secret text
+    document.getElementById("saveTok").addEventListener("click",function(){
+      sessionStorage.setItem("ct_repo",repo.value.trim());
+      if(token.value.trim()) sessionStorage.setItem("ct_token",token.value.trim());
+      token.value="";
+      status("Saved for this browser session.");
+    });
+    var btn=document.getElementById("runSmart");
+    if(!C.smartConfigured){ btn.disabled=true; btn.title="add ANTHROPIC_API_KEY as a GitHub secret to enable";
+      status("smart mode not configured"); }
+    btn.addEventListener("click",runSmart);
+  }
+  function status(s){ document.getElementById("smartStatus").textContent=s; }
+  function runSmart(){
+    var repo=sessionStorage.getItem("ct_repo"), token=sessionStorage.getItem("ct_token");
+    var model=document.getElementById("model").value;
+    if(!repo||!token){ status("Open ⚙ setup and save your owner/repo + token first."); return; }
+    if(!/^[\w.-]+\/[\w.-]+$/.test(repo)){ status("Repo must look like owner/repo."); return; }
+    status("Starting smart scan ("+model+")…");
+    fetch("https://api.github.com/repos/"+repo+"/actions/workflows/smart-scan.yml/dispatches",{
+      method:"POST",
+      headers:{"Accept":"application/vnd.github+json","Authorization":"Bearer "+token,
+               "X-GitHub-Api-Version":"2022-11-28"},
+      body:JSON.stringify({ref:"main",inputs:{model:model}})
+    }).then(function(r){
+      if(r.status===204){ status("✅ Smart scan started on GitHub. It commits results in ~1–3 min; refresh the page after."); }
+      else if(r.status===401||r.status===403){ status("❌ Token rejected or expired. Make a new fine-grained token (actions:write) and save it again."); sessionStorage.removeItem("ct_token"); }
+      else if(r.status===404){ status("❌ Workflow or repo not found. Check owner/repo and that smart-scan.yml is on the main branch."); }
+      else { r.text().then(function(t){ status("❌ GitHub said "+r.status+": "+t.slice(0,120)); }); }
+    }).catch(function(e){ status("❌ Network error: "+e.message); });
+  }
+
+  // init
+  comps.forEach(function(c){ if(c.hours_left===undefined) c.hours_left=hoursLeft(c.end_utc); });
+  head(); health(); chips(); render(); initModels();
+  setInterval(tick,60000);
+})();
+</script>
+</body>
+</html>

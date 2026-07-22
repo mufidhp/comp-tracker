@@ -1,0 +1,139 @@
+# =====================================================================
+# SOURCES — the list of places we look for competitions.
+# To ADD a source: copy a block, fill the fields, set enabled: true.
+# To REMOVE/PAUSE a source: set enabled: false (don't delete — keeps history).
+#
+# Fields:
+#   name         human label shown in the source-health strip
+#   venue        canonical venue name (must match a tier in config.yaml)
+#   method       json_api | html | telegram | playwright | bybit_api
+#   url          endpoint / page to fetch
+#   reliability  how dependable the SOURCE is: solid | mixed | shaky
+#                (this is NOT the venue safety tier — that lives in config.yaml)
+#   enabled      true/false
+#   stale_days   mark "stale" if newest item older than this many days
+#   parse_notes  reminder of how this source is parsed
+# All URLs verified live 2026-07-21/22.
+# =====================================================================
+
+sources:
+
+  # ---------------- Exchange sources ----------------
+  - name: "Binance (Spot + Alpha)"
+    venue: Binance
+    method: json_api
+    url: "https://www.binance.com/bapi/composite/v1/public/cms/article/list/query?type=1&pageNo=1&pageSize=20&catalogId=93"
+    reliability: mixed
+    enabled: true
+    stale_days: 5
+    parse_notes: "JSON data.catalogs[0].articles[]; fields title, releaseDate(ms), code->url. catalogId=93=competitions. NOTE: pageSize=30 returns HTTP 400 (Binance quirk); use 20. releaseDate=post date, not comp date. May 451/block from datacenter IPs -> Playwright fallback."
+
+  - name: "Bybit (announcements API)"
+    venue: Bybit
+    method: bybit_api
+    url: "https://api.bybit.com/v5/announcements/index?locale=en-US&type=latest_activities&limit=30"
+    reliability: solid
+    enabled: true
+    stale_days: 5
+    parse_notes: "PUBLIC JSON API. result.list[]: title, url, type.title, startDateTimestamp+endDateTimestamp (exact UTC ms => CONFIRMED dates, no scraping). Best source for reliable dates. Also pulls a second page for type=... spot. Emoji-safe encoding required."
+
+  - name: "Gate (exchange + Web3 Wallet)"
+    venue: Gate
+    method: html
+    url: "https://www.gate.com/announcements/activity"
+    reliability: mixed
+    enabled: true
+    stale_days: 5
+    parse_notes: "SSR cards (title + relative date). Catches Gate exchange comps AND Gate Web3 Wallet (MemeBox/Meme Go). Returned 403 in testing -> needs Playwright fallback + full headers. web3.gate.com/campaigns 404s. Detail at gate.com/announcements/article/{id}."
+
+  - name: "OKX (exchange)"
+    venue: OKX
+    method: html
+    url: "https://www.okx.com/help/section/announcements-latest-announcements"
+    reliability: shaky
+    enabled: true
+    stale_days: 5
+    parse_notes: "SSR list, no comps-only section; keep titles matching Trade to Earn/Trade & Share/Tournament/Trading Competition. Connection-reset from PK IP (may work from datacenter). Playwright fallback."
+
+  - name: "KuCoin (exchange)"
+    venue: KuCoin
+    method: json_api
+    url: "https://www.kucoin.com/_api/cms/articles?page=1&pageSize=20&lang=en_US"
+    reliability: solid
+    enabled: true
+    stale_days: 5
+    parse_notes: "JSON items[]: title, summary, path/url, publish_ts(ms). The /announcement HTML page is STALE — use this feed. releaseDate=post date."
+
+  - name: "Bitget (exchange)"
+    venue: Bitget
+    method: html
+    url: "https://www.bitget.com/support/sections/4413154768537"
+    reliability: solid
+    enabled: true
+    stale_days: 5
+    parse_notes: "SSR 'Ongoing competitions' (CandyBomb, Trading Club). Public API lacks comps. Article links -> /support/articles/{id}."
+
+  # ---------------- Wallet sources (self-custody swap comps) ----------------
+  - name: "Trust Wallet"
+    venue: Trust Wallet
+    method: playwright
+    url: "https://trustwallet.com/blog/campaigns"
+    reliability: mixed
+    enabled: true
+    stale_days: 45
+    parse_notes: "JS-rendered. Collect campaign links, open each for exact dates (listing hides them). May need reload/wait."
+
+  - name: "Bitget Wallet (Telegram)"
+    venue: Bitget Wallet
+    method: telegram
+    url: "https://t.me/s/Bitget_Wallet_Announcement"
+    reliability: shaky
+    enabled: true
+    stale_days: 30
+    parse_notes: "Static HTML .tgme_widget_message_wrap (text + time[datetime]). Onchain comps (AI-Sector DTFs). Timed out from PK (Telegram throttled in PK) — should work from datacenter. Cache-bust each run."
+
+  - name: "OKX Web3 Wallet"
+    venue: OKX Web3 Wallet
+    method: playwright
+    url: "https://web3.okx.com/boost/x-campaign"
+    reliability: mixed
+    enabled: true
+    stale_days: 30
+    parse_notes: "Hub is JS-rendered SPA (needs Playwright; non-JS gets soft-404). Detail pages web3.okx.com/boost/trading-competition/{slug} ARE server-rendered. Do NOT use /boost/trading-competition alone."
+
+  - name: "KuCoin Web3 Wallet"
+    venue: KuCoin Web3 Wallet
+    method: html
+    url: "https://www.kucoin.com/web3/support/categories/47134508281624"
+    reliability: solid
+    enabled: true
+    stale_days: 30
+    parse_notes: "'Airdrop Events' category, Next.js SSR — list in HTML and in __NEXT_DATA__ JSON blob. buildId rotates (no stable JSON API). Comps titled 'KuCoin Web3 Wallet x [token] Trading Competition'."
+
+  - name: "Coin98 Wallet"
+    venue: Coin98
+    method: html
+    url: "https://coin98.com/blog/tag/campaigns-events/"
+    reliability: mixed
+    enabled: true
+    stale_days: 60
+    parse_notes: "SSR chronological list (blog.coin98.com 302s here). Filter Trading Competition/Swap & Share. Low cadence in 2026 — few expected."
+
+  - name: "1inch Wallet"
+    venue: 1inch Wallet
+    method: html
+    url: "https://1inch.com/blog/tag/contests/"
+    reliability: shaky
+    enabled: true
+    stale_days: 180
+    parse_notes: "SSR+JS blog-tag archive of swap contests. Very infrequent (~3 in 2 years). Low cadence, keep as light source."
+
+  # ---------------- Aggregator ----------------
+  - name: "trading-tournaments.com"
+    venue: "aggregator"
+    method: html
+    url: "https://trading-tournaments.com/tournaments/competitions"
+    reliability: mixed
+    enabled: true
+    stale_days: 14
+    parse_notes: "SSR cards: exchange, prize, dates, asset-class. Parse ALL cards, keep SPOT only, classify each venue's tier via config. Catches BingX/LBank/Phemex/Toobit/KuCoin etc. Venue names get normalized + tiered; dedup vs native sources by URL then fuzzy name."

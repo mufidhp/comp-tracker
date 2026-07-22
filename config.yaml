@@ -1,0 +1,173 @@
+# =====================================================================
+# Crypto Spot Competition Tracker — main configuration
+# Edit this file to change filters, timezone, thresholds and models.
+# This file is read by BOTH Mode A (free, rule-based) and Mode B (smart).
+# =====================================================================
+
+timezone: "Asia/Karachi"          # all dashboard times shown in this zone (PKT, UTC+5)
+
+thresholds:
+  ending_soon_hours: 24           # Telegram "ending soon" + red countdown
+  ending_chip_hours: 48           # dashboard "Ending <48h" filter chip
+  amber_hours: 72                 # countdown turns amber below this many hours
+  stale_days_default: 5           # a source whose newest item is older than this = "stale"
+  retention_days: 7               # keep ENDED competitions visible this many days after end
+  absent_drop_days: 7             # drop an unknown-date comp if unseen this many days
+  seen_prune_days: 180            # forget dedup memory entries older than this
+  detail_fetch_cap: 40            # max NEW competition detail pages opened per Mode-A run
+  detail_fetch_delay_sec: 1.0     # polite pause between detail-page fetches (fast HTTP-only)
+
+fetch:
+  user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+  accept_language: "en-US,en;q=0.9"
+  timeout_sec: 25
+  retries: 3
+  backoff_base_sec: 2             # exponential: 2, 4, 8 ...
+  playwright_wait_ms: 4000        # extra settle time for JS-rendered pages
+
+# ---------------------------------------------------------------------
+# FILTERING — spot / onchain only. See classify.py.
+# Rule: an exclude keyword removes an item UNLESS an include keyword also
+# matches, in which case the item is KEPT and tagged type "mixed".
+# ---------------------------------------------------------------------
+filter:
+  include_keywords:
+    - trading competition
+    - trade to share
+    - trade & share
+    - trade and share
+    - trade to earn
+    - swap to share
+    - swap & share
+    - swap and share
+    - swap & win
+    - swap to earn
+    - spot
+    - candybomb
+    - candydrop
+    - trading arena
+    - trading carnival
+    - carnival
+    - tournament
+    - trading contest
+    - contest
+    - prize pool
+    - memebox
+    - meme go
+    - trade to win
+    - trading challenge
+
+  exclude_keywords:
+    - futures
+    - perpetual
+    - perp
+    - perps
+    - prediction
+    - predict
+    - demo
+    - paper trading
+    - copy trading
+    - futures grid
+    - hodl
+    - staking
+    - stake
+    - lp rewards
+    - liquidity mining
+    - launchpool
+    - launchpad
+    - airdrop only
+    - learn & earn
+    - learn and earn
+    - cryptopedia
+
+  # "onchain" tag applied when any of these appear (wallet / self-custody swaps)
+  onchain_keywords:
+    - wallet
+    - web3
+    - swap
+    - onchain
+    - on-chain
+    - memebox
+    - meme go
+    - dex
+
+  # Extra scoring signals: an item with no include keyword can still be kept
+  # if it scores high on these "looks like a trading comp" patterns.
+  score_signals:
+    - share a prize
+    - share the prize
+    - share of
+    - prize pool
+    - compete for
+    - leaderboard
+    - top traders
+    - top 100
+    - trading volume
+    - win a share
+  score_threshold: 2              # need at least this many signal hits to keep on score alone
+
+# ---------------------------------------------------------------------
+# LEGITIMACY TIERS (venue safety). classify.py maps a venue name to a tier.
+# AVOID is hard-coded here and can NEVER be changed by the smart scan.
+# ---------------------------------------------------------------------
+tiers:
+  A:            # safe / recommended
+    - Binance
+    - Bybit
+    - OKX
+    - Bitget
+    - Gate
+    - KuCoin
+    - Trust Wallet
+    - Bitget Wallet
+    - OKX Web3 Wallet
+    - KuCoin Web3 Wallet
+    - Coin98
+    - Gate Web3 Wallet
+    - Crypto.com
+    - CoinEx
+  caution:      # use with care
+    - BingX
+    - BitMart
+    - LBank
+    - WEEX
+    - Phemex
+    - Pionex
+    - Toobit
+    - HTX
+    - 1inch Wallet
+    - Bitunix
+    - CoinCatch
+  avoid:        # RED — never recommended, never sent to Telegram
+    - MEXC
+    - Blofin
+    - Bitrue
+    - XT.com
+    - CoinW
+
+# Normalize scraped/aggregator venue spellings to the canonical names above.
+venue_aliases:
+  "gate.io": Gate
+  "gate.com": Gate
+  "gate": Gate
+  "gate exchange": Gate
+  "kucoin exchange": KuCoin
+  "kucoin": KuCoin
+  "okx exchange": OKX
+  "okx.com": OKX
+  "binance exchange": Binance
+  "bybit exchange": Bybit
+  "bitget exchange": Bitget
+  "crypto com": Crypto.com
+  "cryptocom": Crypto.com
+  "crypto.com exchange": Crypto.com
+  "xt": XT.com
+  "xt exchange": XT.com
+  "huobi": HTX
+  "gate web3": Gate Web3 Wallet
+  "gate wallet": Gate Web3 Wallet
+
+# Model IDs for Mode B (smart scan). Pinned so behavior is stable.
+models:
+  haiku: "claude-haiku-4-5-20251001"
+  sonnet: "claude-sonnet-5"
