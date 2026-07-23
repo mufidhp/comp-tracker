@@ -10,7 +10,7 @@ No network, no AI. Used by Mode A and (for the hard-coded AVOID guard) Mode B.
 """
 from __future__ import annotations
 
-_PUNCT = str.maketrans({c: " " for c in "-_/|:;,.!?()[]{}\"'#*"})
+_PUNCT = str.maketrans({c: " " for c in "-_/|:;,.!?()[]{}\"'#*&"})
 
 
 def _norm_text(*parts: str) -> str:
@@ -108,7 +108,20 @@ def classify_item(title: str, body: str, cfg: dict) -> dict:
     def typ():
         return "onchain" if onchain else "spot"
 
+    # Judge futures/perps from the TITLE — what the event is branded as — not the body.
+    # Rescue to "mixed" only for a REAL spot+futures combo: a lone "spot" doesn't count,
+    # because idioms like "earn your spot" (a seat) falsely match. Require a spot-TRADING
+    # phrase. (Punctuation is stripped, so "spot & futures" -> "spot futures".)
+    title_text = _norm_text(title)
+    is_futures_title = any(w in title_text for w in ("futures", "perp"))
+    spot_combo = any(p in title_text for p in (
+        "spot trading", "spot market", "spot pair", "spot futures", "futures spot",
+        "spot and futures", "futures and spot", "spot swap"))
+
     if inc and exc:
+        if is_futures_title and not spot_combo:
+            return {"keep": False, "type": None, "score": score,
+                    "reason": "futures/perps only (no real spot-trading phrase in title)"}
         if spot_signal:
             return {"keep": True, "type": "mixed", "score": score,
                     "reason": f"spot signal + exclude({exc[0]}) -> mixed"}

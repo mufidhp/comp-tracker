@@ -245,12 +245,17 @@ def merge_and_retain(fresh: list, prev_data: dict, cfg: dict, now: dt.datetime):
             if v["keep"]:
                 fresh_by_id[pid] = p
 
-    # drop ended-beyond-retention outright
+    # drop ended-beyond-retention, and stale archive entries (started long ago, no end)
+    stale_start = dt.timedelta(days=th.get("stale_start_days", 45))
     out = []
     for c in fresh_by_id.values():
         end = _parse_iso(c.get("end_utc"))
         if end and (now - end) > retention:
             continue
+        if not end:
+            start = _parse_iso(c.get("start_utc"))
+            if start and (now - start) > stale_start:
+                continue  # e.g. KuCoin Web3 archive events from months ago with no end date
         out.append(c)
     return out
 

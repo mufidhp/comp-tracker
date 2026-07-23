@@ -13,6 +13,7 @@ thresholds:
   stale_days_default: 5           # a source whose newest item is older than this = "stale"
   retention_days: 7               # keep ENDED competitions visible this many days after end
   absent_drop_days: 7             # drop an unknown-date comp if unseen this many days
+  stale_start_days: 45            # drop a comp whose start is older than this AND has no end date (stale archive entry)
   seen_prune_days: 180            # forget dedup memory entries older than this
   detail_fetch_cap: 40            # max NEW competition detail pages opened per Mode-A run
   detail_fetch_delay_sec: 1.0     # polite pause between detail-page fetches (fast HTTP-only)
@@ -97,6 +98,20 @@ filter:
     - raffle
     - watch to earn
     - fan token
+    # not-a-competition announcements (maintenance / listings / fee promos / claims)
+    - tick size
+    - will adjust
+    - will be adjusted
+    - will list
+    - will delist
+    - delisting
+    - maintenance
+    - zero-fee
+    - zero fee
+    - fee promotion
+    - swag contest
+    - testimonial
+    - rewards are here
 
   # "onchain" tag applied when any of these appear (wallet / self-custody swaps)
   onchain_keywords:
