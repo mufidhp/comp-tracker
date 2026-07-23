@@ -297,7 +297,7 @@ def run_once(cfg, sources, out_dir, dry_run=False):
     now_iso = iso(now)
     data_path = os.path.join(out_dir, "data.json")
     seen_path = os.path.join(out_dir, "seen.json")
-    index_path = os.path.join(out_dir, "index.html")
+    datajs_path = os.path.join(out_dir, "comp-data.js")  # dashboard reads this; index.html is static
 
     prev_data = load_json(data_path, {})
     seen = load_json(seen_path, {})
@@ -343,8 +343,8 @@ def run_once(cfg, sources, out_dir, dry_run=False):
 
     if dry_run:
         write_json(data_path, data)
-        write_text(index_path, render.render(data, cfg))
-        print(f"\n[dry-run] wrote {data_path} and {index_path} ({len(merged)} comps). "
+        write_text(datajs_path, render.data_js(data, cfg))
+        print(f"\n[dry-run] wrote {data_path} and {datajs_path} ({len(merged)} comps). "
               f"seen.json NOT updated, no alerts sent.")
         return data
 
@@ -352,7 +352,7 @@ def run_once(cfg, sources, out_dir, dry_run=False):
     seen = prune_seen(seen, cfg, now)
     write_json(seen_path, seen)
     write_json(data_path, data)
-    write_text(index_path, render.render(data, cfg))
+    write_text(datajs_path, render.data_js(data, cfg))
 
     # Telegram — suppress the flood on the very first run
     notify.send_scan_alert(data, cfg, new_ids, suppress_new=first_ever)
@@ -378,7 +378,7 @@ def prune_seen(seen: dict, cfg, now: dt.datetime):
 def run_smart_mode(cfg, model_key, out_dir):
     now = now_utc()
     data_path = os.path.join(out_dir, "data.json")
-    index_path = os.path.join(out_dir, "index.html")
+    datajs_path = os.path.join(out_dir, "comp-data.js")
     data = load_json(data_path, None)
     if not data:
         print("[smart] no data.json found — run a Mode-A scan first.")
@@ -388,7 +388,7 @@ def run_smart_mode(cfg, model_key, out_dir):
     data["competitions"] = decorate(data.get("competitions", []), cfg, now)
     data["generated_utc"] = iso(now)
     write_json(data_path, data)
-    write_text(index_path, render.render(data, cfg))
+    write_text(datajs_path, render.data_js(data, cfg))
     print(f"[smart] {summary}")
     if smart.is_configured():
         notify.send_text(f"🧠 Smart scan complete — {summary}. Dashboard updated.")
