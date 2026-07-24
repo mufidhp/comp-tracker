@@ -33,7 +33,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-chromium
+          key: playwright-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
 
       - name: Install Chromium
         run: python -m playwright install --with-deps chromium
@@ -54,3 +54,18 @@ jobs:
           git commit -m "Mode A scan $(date -u +'%Y-%m-%d %H:%M UTC')" || echo "nothing to commit"
           git pull --rebase --autostash origin "${{ github.ref_name }}" || true
           git push || echo "push failed (will retry next run)"
+
+      # Last-gasp alert: fires when the JOB itself failed (e.g. install broke)
+      # — crashes inside scanner.py already send their own Telegram message.
+      - name: Telegram alert on workflow failure
+        if: failure()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
+            curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              -d chat_id="${TELEGRAM_CHAT_ID}" \
+              -d text="⚠️ Comp Tracker: workflow FAILED (${{ github.workflow }} run #${{ github.run_number }}). The dashboard may not update until this is fixed — check the Actions tab." \
+              > /dev/null || true
+          fi
