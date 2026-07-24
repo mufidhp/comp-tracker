@@ -5,6 +5,7 @@
 # =====================================================================
 
 timezone: "Asia/Karachi"          # all dashboard times shown in this zone (PKT, UTC+5)
+dashboard_url: "https://mufidhp.github.io/comp-tracker/"   # linked at the end of Telegram alerts
 
 thresholds:
   ending_soon_hours: 24           # Telegram "ending soon" + red countdown
@@ -65,6 +66,7 @@ filter:
     - perpetual
     - perp
     - perps
+    - cfd
     - copy trading
     - futures grid
 
@@ -99,6 +101,11 @@ filter:
     - watch to earn
     - fan token
     # not-a-competition announcements (maintenance / listings / fee promos / claims)
+    - scratch card
+    - loans
+    - share your
+    - migration
+    - affiliate
     - tick size
     - will adjust
     - will be adjusted

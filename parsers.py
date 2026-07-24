@@ -243,8 +243,11 @@ def extract_dates(text: str):
         if len(gap) <= 32 and _GAP_RANGE.match(gap):
             cands[i]["ranged"] = cands[i + 1]["ranged"] = True
 
-    # keep plausible, non-metadata dates near the present
-    lo, hi = now - dt.timedelta(days=120), now + dt.timedelta(days=400)
+    # keep plausible, non-metadata dates. The lower bound is deliberately WIDE
+    # (420d): old stated dates must stay readable so long-ended archive events
+    # get a past end_utc and retention removes them — a tight bound made them
+    # resurrect forever as "dates TBD" zombies.
+    lo, hi = now - dt.timedelta(days=420), now + dt.timedelta(days=400)
     usable = [c for c in cands if not c["meta"] and lo <= c["dt"] <= hi]
     if not usable:
         return None, None, "unverified"
@@ -313,10 +316,23 @@ _PRIZE_RE = re.compile(
     r"(\$?\s?[\d][\d,\.]*\s?(?:k|m)?\s?(?:usdt|usdc|usd|bnb|eth|btc|sol|dollars?)\b|\$\s?[\d][\d,\.]*\s?(?:k|m)?)",
     re.I)
 
+# Fallback: big number + arbitrary UPPERCASE token symbol ("200,000 AUC",
+# "5,000,000 KITE", "100,000 $ZAMA"). Requires a comma or 4+ digits so tiny
+# figures ("3-in-1", "24 JUL") don't match, and excludes month/word noise.
+_PRIZE_TOKEN_RE = re.compile(r"\b(\d{1,3}(?:,\d{3})+|\d{4,})\s?\$?([A-Z][A-Z0-9]{1,7})\b")
+_PRIZE_TOKEN_STOP = {"JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT",
+                     "NOV", "DEC", "UTC", "GMT", "SGT", "HKT", "KST", "JST", "PKT", "AM",
+                     "PM", "APR", "USD", "IN", "TO", "OF", "THE", "AND", "FOR", "WIN"}
+
 
 def _guess_prize(text: str):
     m = _PRIZE_RE.search(text or "")
-    return m.group(0).strip() if m else None
+    if m:
+        return m.group(0).strip()
+    for tm in _PRIZE_TOKEN_RE.finditer(text or ""):
+        if tm.group(2) not in _PRIZE_TOKEN_STOP:
+            return (tm.group(1) + " " + tm.group(2)).strip()
+    return None
 
 
 # --------------------------------------------------------------------------- #
@@ -405,6 +421,64 @@ def _extract_bybit(payload, source, cfg):
                          "date_confidence": "confirmed"})
         out.append(cand)
     return out
+
+
+def _extract_bybit_html(payload, source, cfg):
+    """
+    announcements.bybit.com scrape — recovery path for the datacenter-blocked API.
+    The site is Next.js: walk its __NEXT_DATA__ JSON for article objects, which can
+    carry the SAME startDateTimestamp/endDateTimestamp fields as the old API
+    (=> confirmed dates). Falls back to /article/ anchor scraping.
+    """
+    out = []
+    m = re.search(r'<script id="__NEXT_DATA__"[^>]*>(\{.*?\})</script>', payload or "", re.S)
+    if m:
+        try:
+            nd = json.loads(m.group(1))
+        except Exception:
+            nd = None
+        if nd:
+            def walk(node):
+                if isinstance(node, dict):
+                    title = node.get("title")
+                    url = node.get("url") or node.get("route")
+                    if (isinstance(title, str) and len(title.strip()) > 8
+                            and isinstance(url, str) and "article" in url):
+                        full = url if url.startswith("http") else urljoin(
+                            "https://announcements.bybit.com", url)
+                        desc = node.get("description") or ""
+                        cand = {
+                            "name": title.strip(),
+                            "url": full,
+                            "body": f"{title}. {desc}",
+                            "prize": _guess_prize(title + " " + str(desc)),
+                            "published_utc": _iso_from_any(
+                                node.get("dateTimestamp") or node.get("publishTime")),
+                        }
+                        s = _iso_from_any(node.get("startDateTimestamp"))
+                        e = _iso_from_any(node.get("endDateTimestamp"))
+                        if s or e:
+                            cand.update({"start_utc": s, "end_utc": e,
+                                         "date_confidence": "confirmed"})
+                        out.append(cand)
+                    for v in node.values():
+                        walk(v)
+                elif isinstance(node, list):
+                    for v in node:
+                        walk(v)
+            walk(nd)
+    if not out:
+        out = _anchor_candidates(payload, "https://announcements.bybit.com",
+                                 ["/article"], cfg)
+    # de-dup by url
+    seen, uniq = set(), []
+    for c in out:
+        k = clean_url(c.get("url", ""))
+        if k in seen:
+            continue
+        seen.add(k)
+        uniq.append(c)
+    return uniq
 
 
 def _extract_kucoin_json(payload, source, cfg):
@@ -627,6 +701,8 @@ def parse_source(source: dict, payload: str, cfg: dict):
     venue = source.get("venue")
     if method == "bybit_api":
         return _extract_bybit(payload, source, cfg)
+    if venue == "Bybit":
+        return _extract_bybit_html(payload, source, cfg)
     if venue == "Binance":
         return _extract_binance(payload, source, cfg)
     if venue == "KuCoin" and method == "json_api":

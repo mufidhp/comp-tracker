@@ -13,6 +13,7 @@ Mode A is strictly LLM-free. Mode B is the only path that uses the Claude API.
 from __future__ import annotations
 
 import os
+import re
 import sys
 import json
 import time
@@ -124,6 +125,27 @@ def _fuzzy(a: str, b: str) -> float:
     return SequenceMatcher(None, a.lower(), b.lower()).ratio()
 
 
+def _name_tokens(name: str) -> set:
+    """Comparison tokens of a comp name: alphanumeric words only (emoji, brackets,
+    punctuation and word order all ignored)."""
+    return set(re.findall(r"[a-z0-9]+", (name or "").lower()))
+
+
+# Tokens that mark a DIFFERENT round/edition of a recurring competition.
+_ROUND_TOKENS = {"round", "phase", "season", "part", "edition", "episode",
+                 "ii", "iii", "iv", "v", "vi", "vii"}
+
+
+def _round_extra(extra: set) -> bool:
+    """True if the extra tokens indicate another round/phase (incl. small numbers)."""
+    for t in extra:
+        if t in _ROUND_TOKENS:
+            return True
+        if re.fullmatch(r"\d{1,2}(?:st|nd|rd|th)?", t):
+            return True
+    return False
+
+
 def dedup(records: list) -> list:
     kept, by_url = [], {}
     for r in records:
@@ -131,10 +153,24 @@ def dedup(records: list) -> list:
         if cu and cu in by_url:
             _merge_dupe(by_url[cu], r)
             continue
-        # fuzzy: same venue + very similar name
+        # fuzzy: same venue + very similar name, OR one name contained in the other
+        # (aggregator often uses the short title: "Spot Trading Arena" vs
+        #  "Spot Trading Arena: Pick your pair and compete for ...")
         dup = None
+        rt = _name_tokens(r.get("name"))
+        rname = (r.get("name") or "").lower()
         for k in kept:
-            if k["venue"] == r["venue"] and _fuzzy(k["name"], r["name"]) > 0.9:
+            if k["venue"] != r["venue"]:
+                continue
+            kt = _name_tokens(k.get("name"))
+            small, big = (rt, kt) if len(rt) <= len(kt) else (kt, rt)
+            # token-subset containment: the short title's words all appear in the
+            # long one ("Spot Trading Arena" ⊂ "Spot Trading Arena: Pick your pair…",
+            # emoji/word-order-proof). Guard: "X" vs "X Round II" are DIFFERENT
+            # competitions — extra round/phase/number tokens block the merge.
+            contained = (len(small) >= 3 and small <= big
+                         and not _round_extra(big - small))
+            if contained or _fuzzy((k.get("name") or "").lower(), rname) > 0.9:
                 dup = k
                 break
         if dup:
@@ -157,6 +193,8 @@ def _merge_dupe(keep: dict, other: dict):
     if not keep.get("end_utc") and other.get("end_utc"):
         keep["end_utc"] = other["end_utc"]
         keep["start_utc"] = keep.get("start_utc") or other.get("start_utc")
+    if not keep.get("note") and other.get("note"):
+        keep["note"] = other["note"]
 
 
 # --------------------------------------------------------------------------- #
@@ -245,10 +283,13 @@ def merge_and_retain(fresh: list, prev_data: dict, cfg: dict, now: dt.datetime):
             if v["keep"]:
                 fresh_by_id[pid] = p
 
-    # drop ended-beyond-retention, and stale archive entries (started long ago, no end)
+    # drop ended-beyond-retention, stale archive entries (started long ago, no end),
+    # and anything a smart scan verdicted as not-a-competition
     stale_start = dt.timedelta(days=th.get("stale_start_days", 45))
     out = []
     for c in fresh_by_id.values():
+        if c.get("smart_verdict") == "exclude":
+            continue
         end = _parse_iso(c.get("end_utc"))
         if end and (now - end) > retention:
             continue
@@ -318,6 +359,9 @@ def run_once(cfg, sources, out_dir, dry_run=False):
 
     # merge with previous (protect Mode B) + retention
     merged = merge_and_retain(all_records, prev_data, cfg, now)
+    # dedup AGAIN post-merge: a retained old record (different id/url) can duplicate
+    # a fresh one — e.g. the aggregator's short title vs the venue's full title.
+    merged = dedup(merged)
 
     # is_new via seen memory
     new_ids = []
@@ -385,13 +429,18 @@ def run_smart_mode(cfg, model_key, out_dir):
         return None
 
     data, summary, n = smart.run_smart(data, cfg, model_key)
+    # smart "exclude" verdicts remove the item immediately
+    data["competitions"] = [c for c in data.get("competitions", [])
+                            if c.get("smart_verdict") != "exclude"]
     data["competitions"] = decorate(data.get("competitions", []), cfg, now)
     data["generated_utc"] = iso(now)
     write_json(data_path, data)
     write_text(datajs_path, render.data_js(data, cfg))
     print(f"[smart] {summary}")
     if smart.is_configured():
-        notify.send_text(f"🧠 Smart scan complete — {summary}. Dashboard updated.")
+        url = (cfg.get("dashboard_url") or "").strip()
+        tail = f"\n📊 {url}" if url.startswith("http") else ""
+        notify.send_text(f"🧠 Smart scan complete — {summary}. Dashboard updated.{tail}")
     return data
 
 

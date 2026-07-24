@@ -134,7 +134,9 @@ def send_scan_alert(data: dict, cfg: dict, new_ids: list[str], suppress_new: boo
         plines = ", ".join(f"{html.escape(h['source'])} ({h['status']})" for h in problems[:12])
         blocks.append(f"\n🏥 <b>Source issues:</b> {plines}\n")
 
-    return _chunk_and_send(header, blocks)
+    url = (cfg.get("dashboard_url") or "").strip()
+    footer = f"\n📊 <a href=\"{html.escape(url)}\">Open dashboard</a>" if url.startswith("http") else ""
+    return _chunk_and_send(header, blocks, footer)
 
 
 def send_text(message: str) -> bool:

@@ -66,12 +66,16 @@ In your repo: **Settings → Secrets and variables → Actions → New repositor
 
 ## Part 2 — Reading the dashboard
 
-- **Cards** are grouped **Tier-A (safe) first**, then Caution, then a red **Avoid** section.
-- **Countdown** (top-right of each card): 🟢 green = lots of time, 🟠 amber = under 3 days, 🔴 red = under 24 hours, ⚪ grey = ended or dates unknown.
-- **⚠ verify dates** means we found a date but couldn't be 100% sure of the timezone — check the official page (or run a smart scan).
-- **Filter chips** at the top: *All · Ending <48h · Onchain · CEX spot · Safe · New*.
-- **Source health strip**: shows which sources are working (`ok`) or having trouble (`blocked` / `failed` / `stale`). Nothing is ever hidden from you.
-- All times are shown in **Pakistan time (PKT, UTC+5)**.
+- **Tabs**: **Live** (running now) · **Upcoming** (announced, not started) · **Ended** (kept 7 days).
+- **Search, Sort & Group**: search any name/venue/prize; sort by time left, prize, venue, safety, type or newest; group by time left, venue, tier or type.
+- **Countdown chip** on each card: red = under 24 hours, amber = under 3 days, green = later, grey = ended/dates unknown. The **↗** opens the official page in one tap; **Details ▾** shows dates, notes and warnings.
+- **Click a venue name** (e.g. *Binance*) to see only that venue; clear with the banner's ✕.
+- **⚠ verify dates** means a date was found but its timezone wasn't stated — check the official page (or ask for a smart scan).
+- **🔔 Health** (top-right) opens the Source Health page: every source's status in plain English. Nothing is ever hidden from you.
+- **⚙ Settings** holds the optional AI smart-scan controls (model choice + GitHub token).
+- **PKT/UTC** and **Light/Dark** toggles are in the toolbar. Times default to Pakistan time.
+- 📱 **On your phone**: open the dashboard, then *Add to Home screen* — it installs like an app with its own icon.
+- The page quietly re-checks for new data every 10 minutes, so a tab left open stays current.
 
 ---
 
@@ -91,7 +95,7 @@ The button needs permission to start the smart-scan job. This uses a **fine-grai
 2. **Repository access:** Only select repositories → pick your `comp-tracker` repo.
 3. **Permissions → Repository permissions → Actions → Read and write.**
 4. Generate and copy the token.
-5. On your dashboard, open **⚙ smart-scan setup**, type your `owner/repo` (e.g. `yourname/comp-tracker`), paste the token, click **Save for this session**.
+5. On your dashboard, open **⚙ Settings**, type your `owner/repo` (e.g. `yourname/comp-tracker`) under *Connection*, paste the token, click **Save for this session**.
    - The token stays **only in your browser tab** (it's forgotten when you close it) and can do nothing except start this one job.
 
 ### 3c — Use it
@@ -142,9 +146,13 @@ GitHub auto-disables schedules on inactive repos. Just open the **Actions** tab 
 | `parsers.py` | reads pages into competition records + finds dates |
 | `classify.py` | keeps only spot/onchain comps; rates venue safety |
 | `smart.py` | Mode B only — the AI enrichment |
-| `render.py` | builds the dashboard (`index.html`) |
+| `render.py` | writes the dashboard's data file (`comp-data.js`) each scan |
 | `notify.py` | sends Telegram alerts |
-| `data.json` / `seen.json` | the latest results & memory (auto-managed) |
+| `index.html` | the dashboard app (static — updated only when the design changes) |
+| `comp-data.js` | the data the dashboard displays (auto-updated every scan) |
+| `_ds/` | the dashboard's design system (styles + self-hosted fonts) |
+| `manifest.json` / `icon-*.png` | phone "Add to Home screen" app identity |
+| `data.json` / `seen.json` | the pipeline's results & memory (auto-managed) |
 
 ---
 

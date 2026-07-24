@@ -28,14 +28,14 @@ sources:
     stale_days: 5
     parse_notes: "JSON data.catalogs[0].articles[]; fields title, releaseDate(ms), code->url. catalogId=93=competitions. NOTE: pageSize=30 returns HTTP 400 (Binance quirk); use 20. releaseDate=post date, not comp date. May 451/block from datacenter IPs -> Playwright fallback."
 
-  - name: "Bybit (announcements API)"
+  - name: "Bybit (announcements site)"
     venue: Bybit
-    method: bybit_api
-    url: "https://api.bybit.com/v5/announcements/index?locale=en-US&type=latest_activities&limit=30"
-    reliability: solid
+    method: playwright
+    url: "https://announcements.bybit.com/en/?category=latest_activities&page=1"
+    reliability: mixed
     enabled: true
     stale_days: 5
-    parse_notes: "PUBLIC JSON API. result.list[]: title, url, type.title, startDateTimestamp+endDateTimestamp (exact UTC ms => CONFIRMED dates, no scraping). Best source for reliable dates. Also pulls a second page for type=... spot. Emoji-safe encoding required."
+    parse_notes: "RECOVERY EXPERIMENT: api.bybit.com v5 announcements returns 403 from GitHub datacenter IPs (worked from PK residential). This scrapes the Next.js announcements site via Playwright instead — parser tries __NEXT_DATA__ JSON first (may contain startDateTimestamp/endDateTimestamp => confirmed dates), falls back to /article/ anchors. If Bybit's WAF also blocks this, health shows 'blocked' — no worse than the dead API."
 
   - name: "Gate (exchange + Web3 Wallet)"
     venue: Gate
@@ -48,12 +48,12 @@ sources:
 
   - name: "OKX (exchange)"
     venue: OKX
-    method: html
+    method: playwright
     url: "https://www.okx.com/help/section/announcements-latest-announcements"
     reliability: shaky
     enabled: true
     stale_days: 5
-    parse_notes: "SSR list, no comps-only section; keep titles matching Trade to Earn/Trade & Share/Tournament/Trading Competition. Connection-reset from PK IP (may work from datacenter). Playwright fallback."
+    parse_notes: "Switched html->playwright 2026-07: plain HTTP reached the page from the datacenter but found 0 anchors (page went JS-rendered), so render it in Chromium. Keep titles matching Trade to Earn/Trade & Share/Tournament/Trading Competition. Connection-reset from PK IP."
 
   - name: "KuCoin (exchange)"
     venue: KuCoin

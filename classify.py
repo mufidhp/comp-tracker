@@ -113,7 +113,7 @@ def classify_item(title: str, body: str, cfg: dict) -> dict:
     # because idioms like "earn your spot" (a seat) falsely match. Require a spot-TRADING
     # phrase. (Punctuation is stripped, so "spot & futures" -> "spot futures".)
     title_text = _norm_text(title)
-    is_futures_title = any(w in title_text for w in ("futures", "perp"))
+    is_futures_title = any(w in title_text for w in ("futures", "perp", "cfd"))
     spot_combo = any(p in title_text for p in (
         "spot trading", "spot market", "spot pair", "spot futures", "futures spot",
         "spot and futures", "futures and spot", "spot swap"))
