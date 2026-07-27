@@ -8,7 +8,11 @@ timezone: "Asia/Karachi"          # all dashboard times shown in this zone (PKT,
 dashboard_url: "https://mufidhp.github.io/comp-tracker/"   # linked at the end of Telegram alerts
 
 thresholds:
-  ending_soon_hours: 24           # Telegram "ending soon" + red countdown
+  ending_soon_hours: 24           # dashboard red countdown (kept at 24h)
+  telegram_ending_hours: 48       # Telegram "ending soon" — wider than the dashboard
+                                  # so an alert still leaves time to act
+  telegram_horizon_days: 7        # Telegram also lists comps ending inside this window
+  telegram_big_prize_usd: 100000  # prizes at/above this get a 🔥 marker
   ending_chip_hours: 48           # dashboard "Ending <48h" filter chip
   amber_hours: 72                 # countdown turns amber below this many hours
   stale_days_default: 5           # a source whose newest item is older than this = "stale"
@@ -82,6 +86,13 @@ filter:
     - demo
     - paper trading
     - hodl
+    # "Hold to Share 35,000 BEAT" = hold tokens to earn, no trading required —
+    # the spec excludes HODL/earn campaigns, and these were slipping through
+    # because only the word "hodl" was listed.
+    - hold to share
+    - hold to earn
+    - hold and share
+    - hold and earn
     - staking
     - stake
     - lp rewards

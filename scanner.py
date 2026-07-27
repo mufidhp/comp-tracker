@@ -428,7 +428,8 @@ def run_once(cfg, sources, out_dir, dry_run=False):
     write_text(datajs_path, render.data_js(data, cfg))
 
     # Telegram — suppress the flood on the very first run
-    notify.send_scan_alert(data, cfg, new_ids, suppress_new=first_ever)
+    notify.send_scan_alert(data, cfg, new_ids, suppress_new=first_ever,
+                           prev_health=prev_data.get("source_health"))
     print(f"\n[scan] done: {len(merged)} competitions, {len(new_ids)} new"
           f"{' (first run — alert suppressed)' if first_ever else ''}.")
     return data
