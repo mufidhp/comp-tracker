@@ -10,6 +10,8 @@ No network, no AI. Used by Mode A and (for the hard-coded AVOID guard) Mode B.
 """
 from __future__ import annotations
 
+import re
+
 _PUNCT = str.maketrans({c: " " for c in "-_/|:;,.!?()[]{}\"'#*&"})
 
 
@@ -84,6 +86,14 @@ def classify_item(title: str, body: str, cfg: dict) -> dict:
         return hits
 
     inc = any_in(f.get("include_keywords"))
+    # regex includes catch phrasings with the token name in the middle
+    # ("Trade AI-Sector DTFs to share $80,000") that literal keywords miss
+    for pat in (f.get("include_patterns") or []):
+        try:
+            if re.search(pat, text, re.I):
+                inc = inc + [f"pattern:{pat[:24]}"]
+        except re.error:
+            continue
     exc = any_in(f.get("exclude_keywords"))
     onchain = bool(any_in(f.get("onchain_keywords")))
     signal_hits = any_in(f.get("score_signals"))

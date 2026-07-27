@@ -133,6 +133,20 @@ def _playwright_get(url: str, cfg: dict, wait_selector: str | None = None) -> st
                     page.wait_for_timeout(wait_ms)
             except Exception:
                 pass  # settle timeout is best-effort
+            # SPA hubs (OKX Boost) paint their card list after the first frame and
+            # lazy-render the rest on scroll; nudge the page so the whole list exists.
+            try:
+                page.wait_for_load_state("networkidle", timeout=8000)
+            except Exception:
+                pass
+            try:
+                for _ in range(3):
+                    page.mouse.wheel(0, 4000)
+                    page.wait_for_timeout(700)
+                page.mouse.wheel(0, -12000)
+                page.wait_for_timeout(400)
+            except Exception:
+                pass
             # For JSON endpoints the body is the raw JSON; for HTML it's the DOM.
             content = page.content()
             body_text = ""

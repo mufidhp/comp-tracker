@@ -16,8 +16,11 @@ thresholds:
   absent_drop_days: 7             # drop an unknown-date comp if unseen this many days
   stale_start_days: 45            # drop a comp whose start is older than this AND has no end date (stale archive entry)
   seen_prune_days: 180            # forget dedup memory entries older than this
-  detail_fetch_cap: 40            # max NEW competition detail pages opened per Mode-A run
-  detail_fetch_delay_sec: 1.0     # polite pause between detail-page fetches (fast HTTP-only)
+  # Detail-page date hunting. The cap must exceed the number of date-less items a scan
+  # can produce, or old archive events never get their end date, never look "ended",
+  # and linger as "dates TBD" zombies. KuCoin Web3's archive alone can return ~40.
+  detail_fetch_cap: 75            # max competition detail pages opened per Mode-A run
+  detail_fetch_delay_sec: 0.6     # polite pause between detail-page fetches (fast HTTP-only)
 
 fetch:
   user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
@@ -120,6 +123,14 @@ filter:
     - testimonial
     - rewards are here
 
+  # Regex include patterns — for real comp phrasings that literal keywords miss
+  # because the token name sits in the middle, e.g. Bitget Wallet's channel style:
+  # "Trade AI-Sector DTFs to share $80,000". A pattern hit counts as an include hit;
+  # hard-excludes and the futures-title guard still override it.
+  include_patterns:
+    - '(trade|swap|trading)\w*\b.{0,50}\b(to share|to win|win a share|share of|share \$?\d)'
+    - '\b(share|split)\b.{0,30}\b(prize pool|reward pool|rewards? pool)'
+
   # "onchain" tag applied when any of these appear (wallet / self-custody swaps)
   onchain_keywords:
     - wallet
@@ -153,6 +164,8 @@ filter:
 tiers:
   A:            # safe / recommended
     - Binance
+    - Binance Alpha          # Binance's early-token trading zone (same exchange)
+    - Binance Wallet         # Binance Web3 Wallet (onchain campaigns)
     - Bybit
     - OKX
     - Bitget
@@ -196,6 +209,10 @@ venue_aliases:
   "okx exchange": OKX
   "okx.com": OKX
   "binance exchange": Binance
+  "binance alpha": Binance Alpha
+  "binance wallet": Binance Wallet
+  "binance web3": Binance Wallet
+  "binance web3 wallet": Binance Wallet
   "bybit exchange": Bybit
   "bitget exchange": Bitget
   "crypto com": Crypto.com

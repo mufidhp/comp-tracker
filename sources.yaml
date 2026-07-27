@@ -28,32 +28,41 @@ sources:
     stale_days: 5
     parse_notes: "JSON data.catalogs[0].articles[]; fields title, releaseDate(ms), code->url. catalogId=93=competitions. NOTE: pageSize=30 returns HTTP 400 (Binance quirk); use 20. releaseDate=post date, not comp date. May 451/block from datacenter IPs -> Playwright fallback."
 
+  - name: "Bybit (Telegram)"
+    venue: Bybit
+    method: telegram
+    url: "https://t.me/s/Bybit_Announcements"
+    reliability: mixed
+    enabled: true
+    stale_days: 5
+    parse_notes: "RECOVERY ROUTE 2: both api.bybit.com and announcements.bybit.com are WAF-blocked from GitHub datacenter IPs, but t.me/s pages ARE reachable from CI (proven — the Bitget Wallet Telegram source returns ok every scan). Parsed by _extract_telegram (method branch runs before the venue-Bybit branch). Cache-buster applied automatically for telegram sources. Dates come from message text; detail links go to announcements.bybit.com which CI cannot fetch, so the date hunter fails soft — exact dates via chat smart scan. Cannot pre-verify from PK (Telegram banned) — first CI run is the real test."
+
   - name: "Bybit (announcements site)"
     venue: Bybit
     method: playwright
     url: "https://announcements.bybit.com/en/?category=latest_activities&page=1"
-    reliability: mixed
-    enabled: true
+    reliability: shaky
+    enabled: false     # WAF-blocked from datacenter; kept for future retry
     stale_days: 5
     parse_notes: "RECOVERY EXPERIMENT: api.bybit.com v5 announcements returns 403 from GitHub datacenter IPs (worked from PK residential). This scrapes the Next.js announcements site via Playwright instead — parser tries __NEXT_DATA__ JSON first (may contain startDateTimestamp/endDateTimestamp => confirmed dates), falls back to /article/ anchors. If Bybit's WAF also blocks this, health shows 'blocked' — no worse than the dead API."
 
   - name: "Gate (exchange + Web3 Wallet)"
     venue: Gate
     method: html
-    url: "https://www.gate.com/announcements/activity"
+    url: "https://www.gate.com/announcements/trade-match"
     reliability: mixed
     enabled: true
-    stale_days: 5
-    parse_notes: "SSR cards (title + relative date). Catches Gate exchange comps AND Gate Web3 Wallet (MemeBox/Meme Go). Returned 403 in testing -> needs Playwright fallback + full headers. web3.gate.com/campaigns 404s. Detail at gate.com/announcements/article/{id}."
+    stale_days: 14
+    parse_notes: "URL switched 2026-07 from /announcements/activity (mixed promos: IPO, lottery, learn-to-earn) to /announcements/trade-match — Gate's OWN dedicated 'Trading Competitions' category, found in the announcements sidebar via remote browser. Article links /announcements/article/{id} already match _HTML_NEEDLES['Gate']. Gate is Akamai-403 from GitHub datacenter AND from PK; if the block ever lifts we now read the right page. Health reports honestly."
 
   - name: "OKX (exchange)"
     venue: OKX
-    method: playwright
-    url: "https://www.okx.com/help/section/announcements-latest-announcements"
+    method: json_api
+    url: "https://www.okx.com/api/v5/support/announcements?annType=announcements-latest-announcements"
     reliability: shaky
     enabled: true
     stale_days: 5
-    parse_notes: "Switched html->playwright 2026-07: plain HTTP reached the page from the datacenter but found 0 anchors (page went JS-rendered), so render it in Chromium. Keep titles matching Trade to Earn/Trade & Share/Tournament/Trading Competition. Connection-reset from PK IP."
+    parse_notes: "EXPERIMENT 2026-07: the HTML site is hostile everywhere we tried (PK connection-reset, remote-browser navigation denied, datacenter renders but exposes 0 anchors). Public v5 JSON APIs often sit behind lighter protection than the web UI, so try that instead. Shape: {code, data:[{details:[{title,url,pTime}]}]} -> _extract_okx_api. Unverifiable from PK; first CI run decides. Worst case: health says blocked/empty, same as before."
 
   - name: "KuCoin (exchange)"
     venue: KuCoin
@@ -63,6 +72,15 @@ sources:
     enabled: true
     stale_days: 5
     parse_notes: "JSON items[]: title, summary, path/url, publish_ts(ms). The /announcement HTML page is STALE — use this feed. releaseDate=post date."
+
+  - name: "KuCoin (events hub)"
+    venue: KuCoin
+    method: playwright
+    url: "https://www.kucoin.com/events"
+    reliability: shaky
+    enabled: true
+    stale_days: 30
+    parse_notes: "EXPERIMENT 2026-07: the CMS feed carries no competitions (50 titles checked — listings/maintenance only), but KuCoin runs promos on this separate hub. Plain HTTP returns a JS shell with 0 anchors, so render it. Anchor needles for venue KuCoin: /events/ /activity/ /announcement/. If rendering exposes nothing, health says 'empty' — honest, no worse than not having it."
 
   - name: "Bitget (exchange)"
     venue: Bitget
@@ -92,14 +110,23 @@ sources:
     stale_days: 30
     parse_notes: "Static HTML .tgme_widget_message_wrap (text + time[datetime]). Onchain comps (AI-Sector DTFs). Timed out from PK (Telegram throttled in PK) — should work from datacenter. Cache-bust each run."
 
-  - name: "OKX Web3 Wallet"
+  - name: "OKX Web3 Wallet (X Campaign)"
     venue: OKX Web3 Wallet
     method: playwright
     url: "https://web3.okx.com/boost/x-campaign"
     reliability: mixed
     enabled: true
     stale_days: 30
-    parse_notes: "Hub is JS-rendered SPA (needs Playwright; non-JS gets soft-404). Detail pages web3.okx.com/boost/trading-competition/{slug} ARE server-rendered. Do NOT use /boost/trading-competition alone."
+    parse_notes: "JS-rendered SPA (needs Playwright; non-JS gets soft-404). Parser _extract_okx_web3 trusts OKX's OWN url labels: /boost/trading-competition/{slug} = keep, /boost/x-stake/ = staking, skipped. Card titles are just 'Competition · X Layer · 100,000 USDC' (no keyword), so title-only filtering used to drop every card. Card dates are countdowns ('Ends in: 03D 09h') or 'Ended on: MM/DD/YYYY' — both converted; detail pages carry exact dates for the hunter to confirm."
+
+  - name: "OKX Web3 Wallet (X Launch)"
+    venue: OKX Web3 Wallet
+    method: playwright
+    url: "https://web3.okx.com/boost/x-launch"
+    reliability: mixed
+    enabled: true
+    stale_days: 30
+    parse_notes: "Second OKX Boost tab, previously never fetched. /boost/x-launch/{slug} events rank users by onchain swap VOLUME over a snapshot window (verified on arcium2: 'Total Boost volume $4.5M', 'snapshot period 2026-07-07 to 2026-07-16') => genuine onchain trading comps. /boost/x-stake/ cards on the same page are staking and are skipped by the parser."
 
   - name: "KuCoin Web3 Wallet"
     venue: KuCoin Web3 Wallet

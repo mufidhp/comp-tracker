@@ -387,13 +387,36 @@ def _extract_binance(payload, source, cfg):
     for a in arts:
         code = a.get("code") or a.get("id")
         url = f"https://www.binance.com/en/support/announcement/{code}" if code else "https://www.binance.com/en/support/announcement"
-        out.append({
-            "name": a.get("title", "").strip(),
+        title = (a.get("title") or "").strip()
+        low = title.lower()
+
+        # Binance catalog 93 mixes three different products under one venue name.
+        # Split them so the dashboard's venue grouping/filter tells them apart:
+        #  - Alpha  : early-token trading inside the app (Alpha pairs, not normal spot)
+        #  - Wallet : Binance Web3 Wallet onchain campaigns
+        #  - Binance: ordinary CEX spot tournaments
+        venue, forced_type, structure = "Binance", None, None
+        if "alpha" in low:
+            venue = "Binance Alpha"
+            structure = "Binance Alpha platform — early-token volume competition"
+        elif "wallet" in low or "on-chain" in low or "onchain" in low:
+            venue = "Binance Wallet"
+            forced_type = "onchain"
+            structure = "Binance Web3 Wallet onchain campaign"
+
+        cand = {
+            "name": title,
             "url": url,
-            "body": a.get("title", ""),
-            "prize": _guess_prize(a.get("title", "")),
+            "body": title,
+            "prize": _guess_prize(title),
             "published_utc": _iso_from_ms(a.get("releaseDate")),
-        })
+            "venue": venue,
+        }
+        if forced_type:
+            cand["force_type"] = forced_type
+        if structure:
+            cand["structure"] = structure
+        out.append(cand)
     return out
 
 
@@ -481,6 +504,148 @@ def _extract_bybit_html(payload, source, cfg):
     return uniq
 
 
+# OKX Boost countdowns. Live DOM renders "Ends in: 03 D 09 h 17 m 10 s" — spaced,
+# uppercase units — so every unit needs \s* on BOTH sides and must stay optional.
+_COUNTDOWN_RE = re.compile(
+    r"ends?\s*in[:\s]*(?:(\d{1,3})\s*d\b)?\s*(?:(\d{1,2})\s*h\b)?\s*(?:(\d{1,2})\s*m\b)?",
+    re.I)
+# "Ended on: 07/23/2026"
+_ENDED_ON_RE = re.compile(r"ended\s*on[:\s]*(\d{1,2})/(\d{1,2})/(20\d{2})", re.I)
+
+
+def _extract_okx_web3(payload, source, cfg):
+    """
+    OKX Boost hub (x-campaign + x-launch).
+
+    OKX labels its own events in the URL — /boost/trading-competition/<slug> and
+    /boost/x-launch/<slug> are real onchain volume competitions, while
+    /boost/x-stake/<slug> is staking (excluded by spec). That label is far more
+    reliable than the card text, which is just "Competition · X Layer · 100,000
+    USDC" (no include-keyword, so keyword-only filtering dropped every card).
+
+    Dates on cards are relative ("Ends in: 03D 09h") or "Ended on: MM/DD/YYYY";
+    both are converted here. The detail pages carry exact dates, which Mode-A's
+    date hunter confirms later.
+    """
+    soup = _soup(payload)
+    base = "https://web3.okx.com"
+    now = dt.datetime.now(UTC)
+    out, seen = [], set()
+
+    for a in soup.find_all("a", href=True):
+        href = a["href"]
+        if "/boost/" not in href:
+            continue
+        kind = None
+        if "/boost/trading-competition/" in href:
+            kind = "competition"
+        elif "/boost/x-launch/" in href:
+            kind = "launch"
+        else:
+            continue  # hub links, /boost/x-stake/ (staking), /boost/rewards ...
+
+        url = urljoin(base, href)
+        key = clean_url(url)
+        if key in seen:
+            continue
+        seen.add(key)
+
+        raw = a.get_text(" ", strip=True)
+        text = re.sub(r"\s+", " ", raw)[:600]
+
+        # slug -> readable fallback name ("xlayer-trading-campaign" -> "Xlayer Trading Campaign")
+        slug = clean_url(url).rstrip("/").split("/")[-1]
+        pretty = re.sub(r"[-_]+", " ", slug).strip().title()
+
+        # card text minus the countdown/ended chatter is the best display name.
+        # Strip whole timer phrases first ("Ends in: 03 D 09 h 59 m 35 s",
+        # "Claim ongoing: 05 D 11 h ...") — digits and units together, so nothing
+        # numeric survives to be mistaken for a token amount.
+        _TIMER = r"(?:\d{1,3}\s*[dhms]\b[\s:]*)+"
+        cleaned = re.sub(r"(?:ends?\s*in|claim ongoing)[:\s]*" + _TIMER, " ", text, flags=re.I)
+        cleaned = _ENDED_ON_RE.sub(" ", cleaned)
+        cleaned = re.sub(r"^" + _TIMER, " ", cleaned.strip(), flags=re.I)
+        cleaned = re.sub(r"\b(view details|join now|competition|ended|participants)\b",
+                         " ", cleaned, flags=re.I)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip(" ·-—|:")
+        # de-duplicate an immediately repeated chain/token name ("X Layer X Layer")
+        cleaned = re.sub(r"\b(.{3,20}?)\s+\1\b", r"\1", cleaned, flags=re.I)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip(" ·-—|:")
+
+        label = "Trading Competition" if kind == "competition" else "X Launch"
+        # X Launch cards append a long project description after the title — keep the
+        # headline only (up to the first sentence / "is a|is an" blurb).
+        cleaned = re.split(r"(?<=[a-z])\.\s|\bis an?\b", cleaned, maxsplit=1)[0].strip(" ·-—|:")
+        name = f"{cleaned} — OKX {label}" if len(cleaned) >= 4 else f"{pretty} — OKX {label}"
+
+        start_utc = end_utc = None
+        conf = "unverified"
+        em = _ENDED_ON_RE.search(text)
+        if em:
+            mo, dd, yy = int(em.group(1)), int(em.group(2)), int(em.group(3))
+            d0 = _mk(yy, mo, dd, 0, 0)
+            if d0:
+                end_utc = d0.replace(tzinfo=UTC).isoformat()
+        else:
+            cm = _COUNTDOWN_RE.search(text)
+            if cm and any(cm.groups()):
+                days = int(cm.group(1) or 0)
+                hrs = int(cm.group(2) or 0)
+                mins = int(cm.group(3) or 0)
+                if days or hrs or mins:
+                    end_utc = (now + dt.timedelta(days=days, hours=hrs, minutes=mins)) \
+                        .replace(second=0, microsecond=0).isoformat()
+
+        # The shared classifier never sees the URL, and OKX's card text carries no
+        # include-keyword ("Cap X Launch", "Competition · X Layer"). Since the URL
+        # already proved what this is, state it in the body in the classifier's own
+        # vocabulary so keyword filtering agrees with OKX's labelling.
+        kind_phrase = ("onchain swap trading competition" if kind == "competition"
+                       else "onchain swap to share trading competition (volume ranked)")
+        out.append({
+            "name": name[:140],
+            "url": url,
+            "body": f"{name}. OKX Web3 Wallet {kind_phrase}. {text}",
+            # guess the prize from the DE-DATED text so "Ended on: 07/04/2026 ... 2M RE"
+            # can't yield a year as the amount ("2026 RE")
+            "prize": _guess_prize(_ENDED_ON_RE.sub(" ", text)),
+            "published_utc": None,
+            "start_utc": start_utc,
+            "end_utc": end_utc,
+            "date_confidence": conf,
+        })
+    return out
+
+
+def _extract_okx_api(payload, source, cfg):
+    """OKX public v5 announcements API: {code, data:[{details:[{title,url,pTime}]}]}."""
+    out = []
+    try:
+        data = json.loads(payload)
+    except Exception:
+        m = re.search(r"\{.*\}", payload or "", re.S)
+        if not m:
+            return out
+        try:
+            data = json.loads(m.group(0))
+        except Exception:
+            return out
+    for page in (data.get("data") or []):
+        for it in (page.get("details") or []):
+            title = (it.get("title") or "").strip()
+            if not title:
+                continue
+            url = (it.get("url") or "").strip() or "https://www.okx.com/help"
+            out.append({
+                "name": title,
+                "url": url,
+                "body": title,
+                "prize": _guess_prize(title),
+                "published_utc": _iso_from_any(it.get("pTime")),
+            })
+    return out
+
+
 def _extract_kucoin_json(payload, source, cfg):
     out = []
     try:
@@ -535,7 +700,11 @@ def _extract_kucoin_web3(payload, source, cfg):
 def _extract_telegram(payload, source, cfg):
     soup = _soup(payload)
     out = []
-    for wrap in soup.select(".tgme_widget_message_wrap, .tgme_widget_message"):
+    # t.me/s markup nests .tgme_widget_message INSIDE .tgme_widget_message_wrap, so a
+    # combined selector matches every post twice. Prefer the wrapper; only fall back
+    # to the inner node when no wrappers exist.
+    posts = soup.select(".tgme_widget_message_wrap") or soup.select(".tgme_widget_message")
+    for wrap in posts:
         txt_el = wrap.select_one(".tgme_widget_message_text")
         text = txt_el.get_text(" ", strip=True) if txt_el else ""
         if not text:
@@ -684,6 +853,7 @@ def _aggregator_venue(text, cfg):
 # Generic HTML sources -> anchor scraping with source-specific href filters
 _HTML_NEEDLES = {
     "Gate": (["/announcements/article/"], "https://www.gate.com"),
+    "KuCoin": (["/events/", "/activity/", "/announcement/"], "https://www.kucoin.com"),
     "OKX": (["/help/article/", "/announcements/"], "https://www.okx.com"),
     "Bitget": (["/support/articles/", "/support/article/"], "https://www.bitget.com"),
     "Trust Wallet": (["/blog/"], "https://trustwallet.com"),
@@ -699,8 +869,15 @@ def parse_source(source: dict, payload: str, cfg: dict):
         return []
     method = source.get("method")
     venue = source.get("venue")
+    # METHOD-specific parsers first: a venue can be served by several transports
+    # (Bybit now has both a Telegram mirror and the WAF-blocked site), so the
+    # transport decides the parser, not the venue name.
     if method == "bybit_api":
         return _extract_bybit(payload, source, cfg)
+    if method == "telegram":
+        return _extract_telegram(payload, source, cfg)
+    if venue == "OKX" and method == "json_api":
+        return _extract_okx_api(payload, source, cfg)
     if venue == "Bybit":
         return _extract_bybit_html(payload, source, cfg)
     if venue == "Binance":
@@ -709,8 +886,8 @@ def parse_source(source: dict, payload: str, cfg: dict):
         return _extract_kucoin_json(payload, source, cfg)
     if venue == "KuCoin Web3 Wallet":
         return _extract_kucoin_web3(payload, source, cfg)
-    if method == "telegram":
-        return _extract_telegram(payload, source, cfg)
+    if venue == "OKX Web3 Wallet":
+        return _extract_okx_web3(payload, source, cfg)
     if venue == "aggregator":
         return _extract_aggregator(payload, source, cfg)
     if venue in _HTML_NEEDLES:
@@ -735,8 +912,11 @@ def build_record(cand: dict, source: dict, cfg: dict, now_iso: str):
     venue = classify.normalize_venue(cand.get("venue") or source.get("venue", ""), cfg)
     url = cand.get("url") or source.get("url", "")
 
-    # dates: use ones supplied by the extractor (e.g. Bybit confirmed), else parse text
-    if cand.get("start_utc") or cand.get("date_confidence") == "confirmed":
+    # dates: use ones supplied by the extractor (e.g. Bybit confirmed, OKX countdowns),
+    # else parse them out of the text. An extractor that supplies ONLY an end date
+    # (countdown-derived) must win too — otherwise the generic parser overwrites it.
+    if (cand.get("start_utc") or cand.get("end_utc")
+            or cand.get("date_confidence") == "confirmed"):
         start_utc = cand.get("start_utc")
         end_utc = cand.get("end_utc")
         conf = cand.get("date_confidence", "unverified")
@@ -747,12 +927,14 @@ def build_record(cand: dict, source: dict, cfg: dict, now_iso: str):
         "id": stable_id(url, venue, name),
         "name": name,
         "venue": venue,
-        "type": verdict["type"],
+        # an extractor that knows the product (e.g. Binance Wallet = onchain) wins
+        # over the keyword guess, which only sees the title text
+        "type": cand.get("force_type") or verdict["type"],
         "prize": cand.get("prize"),
         "start_utc": start_utc,
         "end_utc": end_utc,
         "date_confidence": conf,
-        "structure": None,
+        "structure": cand.get("structure"),
         "entry": None,
         "eligibility": None,
         "fee": None,

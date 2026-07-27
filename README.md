@@ -159,5 +159,15 @@ GitHub auto-disables schedules on inactive repos. Just open the **Actions** tab 
 ## Honest limitations (please read once)
 
 - **Announcement date ≠ competition date.** Listings often show only when a post was published, not when the competition ends. Mode A opens each new competition's page and searches for real dates, but it only marks them **confirmed** when the page clearly states a timezone. Everything else shows **⚠ verify** — run a smart scan or check the official page.
-- **Some sources may be blocked from GitHub's servers** (Binance and Cloudflare/Akamai-fronted sites are the usual suspects). The dashboard's health strip always tells you the truth.
+- **Some sources are blocked from GitHub's servers.** Exchanges protect their sites against automated visitors, and GitHub's data-centre addresses are treated with suspicion. The Health page always reports the truth. Current state:
+
+| Venue | Situation |
+|---|---|
+| **Bybit** | Its API and website both refuse our server. We now read Bybit's **Telegram announcement channel** instead, which does get through. |
+| **Gate** | Blocked everywhere we've tried (Akamai). We've pointed it at Gate's dedicated *Trading Competitions* page so it works the moment the block lifts. |
+| **OKX exchange** | The most hostile of all — no route works today. We're trying their public data API; the Health page will say if it starts working. (OKX's **wallet** side, X Campaign & X Launch, works fine.) |
+| **Binance detail pages** | Reachable, but each competition's own page shows a CAPTCHA to automated visitors, so exact dates come from a manual smart scan. |
+
+  Blocked sources are kept switched on deliberately — if a site changes its mind, they start working again on the very next scan.
+- **Binance events are split by product**: **Binance** (regular spot tournaments), **Binance Alpha** (early-token trading zone) and **Binance Wallet** (onchain campaigns) appear as separate venues, so you can tell at a glance which platform a competition runs on.
 - **This is not financial advice.** It finds competitions; it doesn't tell you to trade. Always confirm details on the official page before joining.
