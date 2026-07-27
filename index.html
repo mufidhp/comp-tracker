@@ -59,9 +59,13 @@
     <p style="text-align:center;font-style:italic;color:var(--color-neutral-700);margin:0 0 14px;font-size:15px">Spot, onchain &amp; wallet trading contests</p>
     <div style="border-top:2px solid var(--color-text);border-bottom:1px solid var(--color-text)">
       <div style="display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:2px 0;padding:8px 0;font-size:12px;font-family:var(--font-heading);font-weight:600;letter-spacing:.04em;color:var(--color-neutral-800)">
-        <span style="padding:0 16px">LAST SCANNED {{ headUpdated }} ({{ headScanType }})</span>
+        <span style="padding:0 16px">LAST SCANNED <b style="font-weight:700;color:var(--color-text)">{{ headUpdated }}</b> ({{ headScanType }})</span>
         <span style="padding:0 16px;border-left:1px solid var(--color-divider)">{{ total }} COMPETITIONS</span>
         <span style="padding:0 16px;border-left:1px solid var(--color-divider)">{{ tzZoneLabel }}</span>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:2px 0;padding:0 0 8px;margin-top:-4px;font-size:12px;font-family:var(--font-heading);font-weight:600;letter-spacing:.04em;color:var(--color-neutral-700)">
+        <span style="padding:0 16px">NOW <b style="font-weight:700;color:var(--color-text);font-variant-numeric:tabular-nums">{{ clockPkt }}</b> PKT</span>
+        <span style="padding:0 16px;border-left:1px solid var(--color-divider)"><b style="font-weight:700;color:var(--color-text);font-variant-numeric:tabular-nums">{{ clockUtc }}</b> UTC</span>
       </div>
     </div>
     <sc-if value="{{ stale }}" hint-placeholder-val="{{ false }}">
@@ -86,7 +90,28 @@
     </sc-for>
   </div>
 
-  <div style="position:sticky;top:0;z-index:20;background:var(--color-bg);padding:12px 0 10px;margin-top:8px;border-bottom:1px solid var(--color-divider)">
+  <div style="display:flex;flex-wrap:wrap;gap:7px;margin-top:14px">
+    <sc-for list="{{ venueTags }}" as="v" hint-placeholder-count="10">
+      <button aria-pressed="{{ v.pressed }}" onClick="{{ v.on }}" style="{{ v.style }}" style-hover="{{ v.hover }}">{{ v.label }}</button>
+    </sc-for>
+  </div>
+
+  <sc-if value="{{ showVenueSubs }}" hint-placeholder-val="{{ false }}">
+    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:7px;margin-top:8px;padding-left:14px;border-left:2px solid var(--color-accent)">
+      <span style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-neutral-600);font-family:var(--font-heading);font-weight:600">{{ subGroupLabel }}</span>
+      <sc-for list="{{ venueSubs }}" as="b" hint-placeholder-count="4">
+        <button aria-pressed="{{ b.pressed }}" onClick="{{ b.on }}" style="{{ b.style }}" style-hover="{{ b.hover }}">{{ b.label }}</button>
+      </sc-for>
+    </div>
+  </sc-if>
+
+  <div style="display:flex;flex-wrap:wrap;gap:7px;margin-top:9px">
+    <sc-for list="{{ timeTags }}" as="tt" hint-placeholder-count="3">
+      <button aria-pressed="{{ tt.pressed }}" onClick="{{ tt.on }}" style="{{ tt.style }}" style-hover="{{ tt.hover }}">{{ tt.label }}</button>
+    </sc-for>
+  </div>
+
+  <div style="position:sticky;top:0;z-index:20;background:var(--color-bg);padding:12px 0 10px;margin-top:12px;border-bottom:1px solid var(--color-divider)">
     <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px">
       <input class="input" style="flex:1;min-width:180px;max-width:340px" placeholder="Search name, venue, prize…" value="{{ q }}" onInput="{{ onSearch }}">
       <div style="display:flex;align-items:center;gap:6px">
@@ -182,7 +207,7 @@
     <sc-for list="{{ groups }}" as="g" hint-placeholder-count="2">
       <div style="margin-top:26px">
         <div style="display:flex;align-items:baseline;gap:12px;border-bottom:2px solid var(--color-text);padding-bottom:6px;margin-bottom:14px">
-          <h2 style="margin:0;font-size:22px;letter-spacing:-.01em">{{ g.title }}</h2>
+          <h2 style="{{ g.titleStyle }}">{{ g.title }}</h2>
           <span style="font-size:13px;color:var(--color-neutral-600);font-family:var(--font-heading);font-weight:600">{{ g.count }}</span>
         </div>
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(288px,1fr));gap:14px;align-items:start">
@@ -231,6 +256,10 @@
                 </div>
               </sc-if>
 
+              <sc-if value="{{ item.showAck }}" hint-placeholder-val="{{ false }}">
+                <button onClick="{{ item.onAck }}" style="{{ item.ackStyle }}" style-hover="filter:brightness(.96)">{{ item.ackLabel }}</button>
+              </sc-if>
+
               <button onClick="{{ item.toggle }}" style="align-self:flex-start;background:none;border:none;color:var(--color-accent-700);font-family:var(--font-heading);font-weight:600;font-size:12.5px;cursor:pointer;padding:2px 0;white-space:nowrap" style-hover="text-decoration:underline">{{ item.moreLabel }}</button>
             </div>
           </sc-for>
@@ -253,7 +282,7 @@
     <div style="border-top:3px solid var(--color-text)"></div>
     <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--color-neutral-700);font-family:var(--font-heading);font-weight:600">
       <span>System · Source Health</span>
-      <span>LAST SCANNED {{ headUpdated }} ({{ headScanType }})</span>
+      <span>LAST SCANNED <b style="font-weight:700;color:var(--color-text)">{{ headUpdated }}</b> ({{ headScanType }})</span>
     </div>
     <div style="border-top:1px solid var(--color-divider)"></div>
     <div style="display:flex;align-items:center;gap:16px;margin:14px 0 4px;flex-wrap:wrap">
@@ -312,7 +341,8 @@ class Component extends DCLogic {
     const d = window.COMP_DATA || {competitions:[]};
     const k = window.COMP_CONSTS || {};
     this.state = {
-      q:"", cat:"all", venueFilter:null,
+      q:"", cat:"all", venueFilter:null, venueSub:null, timeFilter:null,
+      ack: (()=>{ try{ return JSON.parse(localStorage.getItem("ct_ack")||"{}"); }catch(e){ return {}; } })(),
       sortKey: props.defaultSort || "timeleft",
       sortDir: (["prize","added"].includes(props.defaultSort)) ? "desc" : "asc",
       groupBy: props.defaultGroup || "timeleft",
@@ -328,7 +358,7 @@ class Component extends DCLogic {
   }
   componentDidMount(){
     const fb=document.getElementById("ct-load-fallback"); if(fb) fb.style.display="none";
-    this._timer = setInterval(()=>this.setState(s=>({tick:s.tick+1})), 30000);
+    this._timer = setInterval(()=>this.setState(s=>({tick:s.tick+1})), 1000);
     const repo = sessionStorage.getItem("ct_repo");
     if(repo && this.repoRef.current) this.repoRef.current.value = repo;
   }
@@ -417,7 +447,8 @@ class Component extends DCLogic {
       else if(gb==="tier"){ const t=TIER[c.tier]||[c.tier,"Other",9]; push(t[0],t[1],t[2],c); }
       else if(gb==="type"){ const t=TYPE[c.type]||[c.type,"Other",9]; push(t[0],t[1],t[2],c); }
       else { const hl=this.hoursLeft(c.end_utc); let k,t,o;
-        if(hl===null){k="tbd";t="Dates to be confirmed";o=90;}
+        if(this.isAck(c)){k="ack";t="Acknowledged — dates confirmed by you";o=92;}
+        else if(hl===null){k="tbd";t="Dates to be confirmed";o=90;}
         else if(hl<=0){k="ended";t="Ended";o=91;}
         else if(hl<=24){k="24";t="Ending within 24 hours";o=0;}
         else if(hl<=48){k="48";t="Ending within 48 hours";o=1;}
@@ -459,13 +490,78 @@ class Component extends DCLogic {
       details, note:c.note||"", dateWarn,
       source:c.source||c.venue||"—", link:/^https?:\/\//i.test(c.official_link||"")?c.official_link:"#",
       expanded, moreLabel: expanded?"Hide details ▲":"Details ▾",
+      showAck: this.hoursLeft(c.end_utc)===null || this.isAck(c),
+      ackLabel: this.isAck(c) ? "✓ Dates confirmed — undo" : "✓ I confirmed the dates",
+      ackStyle: "align-self:flex-start;font-family:var(--font-heading);font-weight:600;font-size:12.5px;cursor:pointer;padding:4px 11px;border-radius:2px;white-space:nowrap;"+(this.isAck(c)
+        ? "background:var(--color-accent-100);color:var(--color-accent-800);border:1px solid var(--color-accent-300)"
+        : "background:var(--color-bg);color:#b07d00;border:1px solid #b07d00"),
+      onAck:()=>this.toggleAck(c.id),
       toggle:()=>this.toggleExpand(c.id),
       onVenue:()=>this.setVenue(c.venue)
     };
   }
 
   toggleExpand(id){ this.setState(s=>({expanded:{...s.expanded,[id]:!s.expanded[id]}})); }
-  setVenue(v){ this.setState(s=>({venueFilter: s.venueFilter===v ? null : v})); }
+  binSub(c){
+    const t=((c.name||"")+" "+(c.structure||"")+" "+(c.official_link||"")).toLowerCase();
+    if(t.includes("wallet")||t.includes("web3")||t.includes("on-chain")||t.includes("onchain")) return "wallet";
+    if(t.includes("alpha")) return "alpha";
+    return "spot";
+  }
+  isAck(c){ return !!(this.state.ack||{})[c.id]; }
+  toggleAck(id){
+    this.setState(s=>{
+      const ack={...(s.ack||{})};
+      if(ack[id]) delete ack[id]; else ack[id]=Date.now();
+      try{ localStorage.setItem("ct_ack", JSON.stringify(ack)); }catch(e){}
+      return {ack};
+    });
+  }
+  timePass(c,id){
+    const acked=this.isAck(c);
+    if(id==="ack") return acked;
+    if(acked) return !id;
+    if(!id) return true;
+    const hl=this.hoursLeft(c.end_utc);
+    if(id==="tbd") return hl===null;
+    if(hl===null) return false;
+    if(id==="week") return hl>0 && hl<=168;
+    if(id==="later") return hl>168;
+    return true;
+  }
+  groupDef(v){
+    const G={
+      // The scanner labels Binance families as their own venues ("Binance",
+      // "Binance Alpha", "Binance Wallet"); binSub is the fallback for items
+      // that arrive as plain "Binance" (e.g. via the aggregator).
+      "Binance":{ members:["Binance","Binance Alpha","Binance Wallet"], subs:[
+        {id:"spot",label:"Spot",test:c=>c.venue==="Binance" && this.binSub(c)==="spot"},
+        {id:"alpha",label:"Alpha",test:c=>c.venue==="Binance Alpha" || (c.venue==="Binance" && this.binSub(c)==="alpha")},
+        {id:"wallet",label:"Binance Wallet",test:c=>c.venue==="Binance Wallet" || (c.venue==="Binance" && this.binSub(c)==="wallet")}]},
+      "KuCoin":{ members:["KuCoin","KuCoin Web3 Wallet"], subs:[
+        {id:"exchange",label:"KuCoin Exchange",test:c=>c.venue==="KuCoin"},
+        {id:"web3",label:"Web3 Wallet",test:c=>c.venue==="KuCoin Web3 Wallet"}]},
+      "Bitget":{ members:["Bitget","Bitget Wallet"], subs:[
+        {id:"exchange",label:"Bitget Exchange",test:c=>c.venue==="Bitget"},
+        {id:"wallet",label:"Bitget Wallet",test:c=>c.venue==="Bitget Wallet"}]}
+    };
+    return G[v]||null;
+  }
+  inVenue(c,v){ const g=this.groupDef(v); return g ? g.members.includes(c.venue||"") : (c.venue||"")===v; }
+  venuePass(c){
+    const vf=this.state.venueFilter;
+    if(!vf) return true;
+    if(!this.inVenue(c,vf)) return false;
+    const g=this.groupDef(vf);
+    if(g && this.state.venueSub){ const s=g.subs.find(x=>x.id===this.state.venueSub); return s?s.test(c):true; }
+    return true;
+  }
+  setVenue(v){
+    const p = v==="KuCoin Web3 Wallet" ? "KuCoin"
+            : (v==="Bitget Wallet" ? "Bitget"
+            : ((v==="Binance Alpha"||v==="Binance Wallet") ? "Binance" : v));
+    this.setState(s=>({venueFilter: s.venueFilter===p ? null : p, venueSub:null}));
+  }
   onSearch(e){ const v=e.target.value; this.setState({q:v}); }
   onSort(e){ const k=e.target.value; this.setState({sortKey:k, sortDir:(["prize","added"].includes(k)?"desc":"asc")}); }
   toggleDir(){ this.setState(s=>({sortDir:s.sortDir==="asc"?"desc":"asc"})); }
@@ -507,7 +603,49 @@ class Component extends DCLogic {
     const q=this.state.q.trim().toLowerCase();
 
     // base = search + venue filtered (for chip counts)
-    const base=comps.filter(c=> this.matchQ(c,q) && (!this.state.venueFilter||c.venue===this.state.venueFilter));
+    const base=comps.filter(c=> this.matchQ(c,q) && this.venuePass(c));
+
+    // venue tags (counts within current search + status)
+    const inScope=comps.filter(c=> this.matchQ(c,q) && this.statusOf(c)===this.state.status);
+    const parentOf=(v)=>{ if(v==="KuCoin Web3 Wallet") return "KuCoin"; if(v==="Bitget Wallet") return "Bitget"; if(v==="Binance Alpha"||v==="Binance Wallet") return "Binance"; return v; };
+    const vcount={}; inScope.forEach(c=>{ const v=parentOf(c.venue||"Other"); vcount[v]=(vcount[v]||0)+1; });
+    const allVenues=[...new Set((D.competitions||[]).map(c=>parentOf(c.venue||"Other")))].sort((a,b)=>(vcount[b]||0)-(vcount[a]||0)||a.localeCompare(b));
+    const tagBase="cursor:pointer;font-family:var(--font-heading);font-weight:600;font-size:12.5px;padding:5px 12px;border-radius:2px;border:1px solid var(--color-divider);white-space:nowrap;";
+    const tagOn="background:var(--color-accent);color:var(--color-bg);border-color:var(--color-accent)";
+    const tagOff="background:var(--color-bg);color:var(--color-neutral-800)";
+    const venueTags=[{ label:"All venues", pressed:!this.state.venueFilter,
+      style: tagBase + (!this.state.venueFilter?tagOn:tagOff),
+      hover: !this.state.venueFilter?"":"background:var(--color-neutral-200)",
+      on:()=>this.setState({venueFilter:null, venueSub:null}) }];
+    allVenues.forEach(v=>{
+      const a=this.state.venueFilter===v; const n=vcount[v]||0; const g=this.groupDef(v);
+      venueTags.push({ label: g ? (a?v+" ▾  "+n:v+" ▸  "+n) : v+"  "+n, pressed:a,
+        style: tagBase + (a?tagOn:tagOff) + (n?"":";opacity:.45"),
+        hover: a?"":"background:var(--color-neutral-200)",
+        on:()=>this.setVenue(v) });
+    });
+    const vf=this.state.venueFilter, gdef=vf?this.groupDef(vf):null;
+    const gScope=gdef?inScope.filter(c=>this.inVenue(c,vf)):[];
+    const SUBS=gdef?[{id:null,label:"All "+vf},...gdef.subs]:[];
+    const venueSubs=SUBS.map(s=>{
+      const id=s.id, a=(this.state.venueSub||null)===id;
+      const n=id?gScope.filter(c=>s.test(c)).length:gScope.length;
+      return { label:s.label+"  "+n, pressed:a,
+        style: tagBase + (a?"background:var(--color-text);color:var(--color-bg);border-color:var(--color-text)":tagOff) + (n?"":";opacity:.45"),
+        hover: a?"":"background:var(--color-neutral-200)",
+        on:()=>this.setState({venueSub:id}) };
+    });
+    // timeframe tags
+    const tScope=base.filter(c=>this.statusOf(c)===this.state.status);
+    const TF=[["week","Ending this week","var(--color-accent-2-600)"],["later","Ending later","#1f7a4d"],["tbd","Dates to be confirmed","#b07d00"],["ack","Acknowledged","var(--color-accent-700)"]];
+    const timeTags=TF.map(([id,label,col])=>{
+      const a=this.state.timeFilter===id; const n=tScope.filter(c=>this.timePass(c,id)).length;
+      return { label:label+"  "+n, pressed:a,
+        style: tagBase + (a?("background:"+col+";color:var(--color-bg);border-color:"+col):("background:var(--color-bg);color:"+col+";border-color:"+col)) + (n?"":";opacity:.45"),
+        hover: a?"":("background:var(--color-neutral-200)"),
+        on:()=>this.setState(s=>({timeFilter: s.timeFilter===id?null:id})) };
+    });
+
     const catCount=(id)=>base.filter(c=>this.statusOf(c)===this.state.status && this.passCat(c,id)).length;
     const CATS=[["all","All"],["soon","Ending <48h"],["onchain","Onchain"],["cex","CEX spot"],["safe","Safe (Tier-A)"],["new","New"]];
     const chipBase="cursor:pointer;font-family:var(--font-heading);font-weight:600;font-size:12.5px;padding:5px 13px;border-radius:2px;border:1px solid var(--color-divider);white-space:nowrap;";
@@ -534,9 +672,10 @@ class Component extends DCLogic {
     });
 
     // full filter for list
-    let list=base.filter(c=>this.passCat(c,this.state.cat) && this.statusOf(c)===this.state.status);
+    let list=base.filter(c=>this.passCat(c,this.state.cat) && this.statusOf(c)===this.state.status && this.timePass(c,this.state.timeFilter));
     list.sort((a,b)=>this.cmp(a,b));
-    const groups=this.buildGroups(list).map(g=>({title:g.title, count:g.count, items:g.items.map(c=>this.toVM(c))}));
+    const TITLE_COL={"24":"var(--color-accent-2-600)","48":"var(--color-accent-2-600)",week:"var(--color-accent-2-600)",later:"#1f7a4d",tbd:"#b07d00",ack:"var(--color-accent-700)"};
+    const groups=this.buildGroups(list).map(g=>({title:g.title, titleStyle:"margin:0;font-size:22px;letter-spacing:-.01em;"+(TITLE_COL[g.key]?"color:"+TITLE_COL[g.key]:""), count:g.count, items:g.items.map(c=>this.toVM(c))}));
 
     // header
     const modeLabel = D.last_mode==="B" ? "MODE B · SMART (AI)" : "MODE A · AUTO (FREE)";
@@ -583,6 +722,8 @@ class Component extends DCLogic {
     return {
       headDate,
       headUpdated: this.fmt(D.generated_utc,true),
+      clockPkt: (()=>{ const d=new Date(Date.now()+5*3600*1000); const p=n=>String(n).padStart(2,"0"); return p(d.getUTCHours())+":"+p(d.getUTCMinutes())+":"+p(d.getUTCSeconds()); })(),
+      clockUtc: (()=>{ const d=new Date(); const p=n=>String(n).padStart(2,"0"); return p(d.getUTCHours())+":"+p(d.getUTCMinutes())+":"+p(d.getUTCSeconds()); })(),
       headScanType: D.last_mode==="B" ? "smart scan · AI" : "auto scan · free",
       tz:this.state.tz, tzZoneLabel: this.state.tz==="UTC" ? "TIMES IN UTC" : "TIMES IN PKT · UTC+5",
       tzOptions:["PKT","UTC"].map(z=>{ const a=this.state.tz===z; const seg="cursor:pointer;font-family:var(--font-heading);font-weight:600;font-size:12.5px;padding:6px 12px;border:none;white-space:nowrap;"; return {id:z,label:z,pressed:a,style:seg+(a?"background:var(--color-text);color:var(--color-bg)":"background:transparent;color:var(--color-neutral-800)"),hover:a?"":"background:var(--color-neutral-200)",on:()=>this.setState({tz:z})}; }),
@@ -606,7 +747,8 @@ class Component extends DCLogic {
       dirLabel: this.state.sortDir==="asc" ? "↑ Asc" : "↓ Desc",
       groupBy:this.state.groupBy,
       footerTz: this.state.tz==="UTC" ? "Times shown in UTC" : "Times shown in Pakistan time (PKT, UTC+5)",
-      venueFilter:this.state.venueFilter,
+      venueFilter: vf ? (gdef && this.state.venueSub ? vf+" · "+((gdef.subs.find(s=>s.id===this.state.venueSub)||{}).label||"") : vf) : null,
+      venueTags, venueSubs, subGroupLabel: vf||"", showVenueSubs: !!gdef, timeTags,
       showSources:this.state.showSources,
       sourcesLabel: this.state.showSources ? "Hide sources" : "Sources ("+sh.length+")",
       sources, sourcesSummary,
@@ -626,7 +768,7 @@ class Component extends DCLogic {
 <script>
 /* Auto-refresh: quietly re-pull comp-data.js every 10 minutes so a tab left
    open (e.g. on a phone) picks up new scans without a manual reload. The app
-   re-renders from window.COMP_DATA on its own 30s tick. Failure-silent. */
+   re-renders from window.COMP_DATA on its own tick. Failure-silent. */
 (function(){
   function refresh(){
     fetch("comp-data.js?v="+Date.now(),{cache:"no-store"}).then(function(r){

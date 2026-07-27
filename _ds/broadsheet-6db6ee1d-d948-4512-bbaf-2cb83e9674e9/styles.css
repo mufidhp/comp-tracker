@@ -1,5 +1,6 @@
 /* Broadsheet — design-system tokens and component classes. This file is the source of truth for the system's look; retune it here and see readme.md. */
-/* Self-hosted Source Serif 4 — no request to fonts.googleapis.com (reliable from any region). */
+/* Self-hosted Source Serif 4 — no request to fonts.googleapis.com.
+   Ship the three woff2 files under this folder's fonts/ directory. */
 @font-face{font-family:"Source Serif 4";font-style:normal;font-weight:400;font-display:swap;src:url("fonts/SourceSerif4-Regular.woff2") format("woff2")}
 @font-face{font-family:"Source Serif 4";font-style:normal;font-weight:600;font-display:swap;src:url("fonts/SourceSerif4-SemiBold.woff2") format("woff2")}
 @font-face{font-family:"Source Serif 4";font-style:italic;font-weight:400;font-display:swap;src:url("fonts/SourceSerif4-Italic.woff2") format("woff2")}
