@@ -104,6 +104,14 @@ filter:
     - watch to earn
     - fan token
     # not-a-competition announcements (maintenance / listings / fee promos / claims)
+    # Telegram announcement channels also carry news/social posts, not just comps
+    - market pulse
+    - x spaces
+    - ama
+    - webinar
+    - price prediction
+    - market update
+    - leaderboard after
     - scratch card
     - loans
     - share your
@@ -130,6 +138,9 @@ filter:
   include_patterns:
     - '(trade|swap|trading)\w*\b.{0,50}\b(to share|to win|win a share|share of|share \$?\d)'
     - '\b(share|split)\b.{0,30}\b(prize pool|reward pool|rewards? pool)'
+    # "…Token Splash to share 2,000,000 $BSB" — a big number right after "to share"
+    # is a competition payout, whatever verb the venue used before it
+    - '\bto share\b\s*(?:up to\s*)?\$?[\d][\d, ]{3,}'
 
   # "onchain" tag applied when any of these appear (wallet / self-custody swaps)
   onchain_keywords:
