@@ -308,8 +308,40 @@ def _anchor_candidates(html, base_url, href_needles, cfg, min_len=15):
         if key in seen:
             continue
         seen.add(key)
-        out.append({"name": title, "url": url, "body": title, "prize": None, "published_utc": None})
+        out.append({"name": title, "url": url, "body": title, "prize": None,
+                    "published_utc": _anchor_published(a, title)})
     return out
+
+
+# Listing rows print the post date next to the title ("… 2026-07-20 12:00").
+# Capturing it is what makes the per-source staleness check work at all — without
+# it newest_item_date stays None and a silently-dead source never reports "stale".
+_LIST_DATE_RE = re.compile(r"\b(20\d{2})[-/](\d{1,2})[-/](\d{1,2})\b")
+
+
+def _anchor_published(a, title):
+    """
+    Find the post date that belongs to THIS row. Listings are often one flat
+    container holding every article, so climbing to a "small enough" parent
+    fails — instead locate the title inside the container text and read the
+    first date in the short window right after it.
+    """
+    scope = a
+    for _ in range(4):
+        text = re.sub(r"\s+", " ", scope.get_text(" ", strip=True))
+        if len(text) > len(title) + 4:
+            idx = text.find(title[:60])
+            window = text[idx + len(title[:60]): idx + len(title[:60]) + 70] if idx >= 0 else text
+            m = _LIST_DATE_RE.search(window) or (_LIST_DATE_RE.search(text) if idx < 0 else None)
+            if m:
+                d0 = _mk(m.group(1), m.group(2), m.group(3), 0, 0)
+                if d0 and 2020 <= d0.year <= 2035:
+                    return d0.replace(tzinfo=UTC).isoformat()
+        parent = scope.find_parent(["div", "li", "article", "tr"])
+        if parent is None:
+            break
+        scope = parent
+    return None
 
 
 _PRIZE_RE = re.compile(
@@ -617,6 +649,97 @@ def _extract_okx_web3(payload, source, cfg):
     return out
 
 
+def _extract_bitget_events(payload, source, cfg):
+    """
+    Bitget's flagship events hub (bitget.com/events) — where the big ones launch
+    (e.g. "2026 King of Traders … share of 2,000,000 USDT"), which the support
+    section does NOT always announce.
+
+    The cards are pure image tiles: no anchor text, no alt text, no embedded
+    JSON titles. So this yields link-only candidates flagged `needs_detail_title`,
+    and scanner.scan_source fetches each detail page for the real title (those
+    pages are static HTML and parse cleanly, dates included).
+    """
+    # The tiles are rendered from client-side data, so these paths live in the
+    # page's JS payload rather than in <a href> — pull them out by pattern.
+    paths = re.findall(r"/events/(?:competitionNew|activities/new)/[0-9a-f]{16,}", payload or "")
+    out, seen = [], set()
+    for href in paths:
+        url = urljoin("https://www.bitget.com", href)
+        key = clean_url(url)
+        if key in seen:
+            continue
+        seen.add(key)
+        slug = href.rstrip("/").split("/")[-1]
+        out.append({
+            "name": f"Bitget event {slug[:10]}",   # replaced by the detail-page title
+            "url": url,
+            "body": "",
+            "prize": None,
+            "published_utc": None,
+            "needs_detail_title": True,
+        })
+    return out
+
+
+def _extract_bitget_wallet_blog(payload, source, cfg):
+    """
+    Bitget Wallet's own blog (web3.bitget.com/en/blog/category/promotion).
+
+    This is where Bitget Wallet actually announces its onchain competitions —
+    e.g. "Trade Reserve Protocol DTFs to Share an $80,000 Prize Pool". The
+    Telegram channel carries mostly news, so the blog is the real feed.
+    Anchor text arrives as "Promotion<title><body…>", so the leading category
+    label is stripped and the title is cut at the body.
+    """
+    soup = _soup(payload)
+    # The same article is linked several times (featured tile, card, /en and
+    # bare paths) and only ONE of those anchors carries the headline text —
+    # keep the richest text per slug instead of the first one seen.
+    best: dict[str, str] = {}
+    pubs: dict[str, str] = {}
+    for a in soup.find_all("a", href=True):
+        href = a["href"]
+        if "/blog/articles/" not in href:
+            continue
+        slug = href.split("?")[0].rstrip("/").split("/")[-1]
+        if not slug:
+            continue
+        txt = re.sub(r"\s+", " ", a.get_text(" ", strip=True))
+        if len(txt) > len(best.get(slug, "")):
+            best[slug] = txt
+        # cards print an ISO post date (2026-07-20) — capture it so freshness
+        # checking works for this source instead of reporting "newest: None"
+        if slug not in pubs:
+            scope = a.find_parent(["article", "li", "div"]) or a
+            dm = re.search(r"\b(20\d{2})-(\d{2})-(\d{2})\b",
+                           scope.get_text(" ", strip=True))
+            if dm:
+                d0 = _mk(dm.group(1), dm.group(2), dm.group(3), 0, 0)
+                if d0:
+                    pubs[slug] = d0.replace(tzinfo=UTC).isoformat()
+
+    out = []
+    for slug, text in best.items():
+        url = f"https://web3.bitget.com/en/blog/articles/{slug}"
+        # drop the category chip the card renders before the headline
+        text = re.sub(r"^(Promotion|Announcement|Product|Report|Guide|Event)\s*",
+                      "", text, flags=re.I).strip()
+        # headline ends where the body copy starts (first sentence-ish break)
+        title = re.split(r"(?<=[a-z\)\!\?])\s+(?=[A-Z][a-z]{2,})", text, maxsplit=1)[0]
+        if len(title) < 12 or len(title) > 150:
+            title = text[:140] if len(text) >= 12 else re.sub(r"[-_]+", " ", slug).title()
+
+        out.append({
+            "name": title.strip()[:140],
+            "url": url,
+            "body": f"{title}. Bitget Wallet onchain swap campaign. {text[:400]}",
+            "prize": _guess_prize(text),
+            "published_utc": pubs.get(slug),
+        })
+    return out
+
+
 def _extract_okx_api(payload, source, cfg):
     """OKX public v5 announcements API: {code, data:[{details:[{title,url,pTime}]}]}."""
     out = []
@@ -888,6 +1011,10 @@ def parse_source(source: dict, payload: str, cfg: dict):
         return _extract_kucoin_web3(payload, source, cfg)
     if venue == "OKX Web3 Wallet":
         return _extract_okx_web3(payload, source, cfg)
+    if venue == "Bitget Wallet" and method == "playwright":
+        return _extract_bitget_wallet_blog(payload, source, cfg)
+    if venue == "Bitget" and "/events" in (source.get("url") or ""):
+        return _extract_bitget_events(payload, source, cfg)
     if venue == "aggregator":
         return _extract_aggregator(payload, source, cfg)
     if venue in _HTML_NEEDLES:

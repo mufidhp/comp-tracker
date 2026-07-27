@@ -72,6 +72,30 @@ def write_text(path: str, text: str):
 # --------------------------------------------------------------------------- #
 #  Fetch + parse one source
 # --------------------------------------------------------------------------- #
+_TITLE_TAIL = re.compile(r"\s*\|\s*Bitget.*$", re.I)
+
+
+def _resolve_detail_titles(candidates: list, cfg: dict, cap: int = 12):
+    """Fill in real titles for image-tile cards by reading their detail pages."""
+    budget = cap
+    for c in candidates:
+        if not c.get("needs_detail_title") or budget <= 0:
+            continue
+        budget -= 1
+        html = fetchers.fetch_detail_fast(c.get("url", ""), cfg)
+        if not html:
+            continue
+        text = parsers._text(html)
+        m = re.search(r"<title[^>]*>(.*?)</title>", html, re.S | re.I)
+        title = _TITLE_TAIL.sub("", (m.group(1) if m else "")).strip()
+        if len(title) >= 12:
+            c["name"] = title[:140]
+        c["body"] = re.sub(r"\s+", " ", text)[:1200]
+        if not c.get("prize"):
+            c["prize"] = parsers._guess_prize(c["name"] + " " + c["body"][:300])
+        time.sleep(0.4)
+
+
 def scan_source(source: dict, cfg: dict, now_iso: str):
     """Returns (records, health)."""
     payload, health = fetchers.fetch(source, cfg)
@@ -84,6 +108,11 @@ def scan_source(source: dict, cfg: dict, now_iso: str):
         health["status"] = "failed"
         health["error"] = f"parse error: {str(e)[:160]}"
         return [], health
+
+    # Some hubs render competitions as image tiles with no readable title
+    # (Bitget's events hub). Those candidates ask for their title to be read
+    # from the detail page, which is static HTML.
+    _resolve_detail_titles(candidates, cfg)
 
     records, newest = [], None
     for cand in candidates:

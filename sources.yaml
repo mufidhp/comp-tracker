@@ -73,6 +73,15 @@ sources:
     stale_days: 5
     parse_notes: "JSON items[]: title, summary, path/url, publish_ts(ms). The /announcement HTML page is STALE — use this feed. releaseDate=post date."
 
+  - name: "Bitget (events hub)"
+    venue: Bitget
+    method: playwright
+    url: "https://www.bitget.com/events"
+    reliability: shaky
+    enabled: true
+    stale_days: 30
+    parse_notes: "Bitget's FLAGSHIP comps launch here (e.g. '2026 King of Traders — share of 2,000,000 USDT') and are NOT always mirrored in the support section, so this catches the big ones at launch. Cards are pure image tiles — no anchor text, no img alt, no embedded JSON titles — so _extract_bitget_events emits link-only candidates with needs_detail_title, and scanner._resolve_detail_titles reads each detail page's <title> (static HTML, dates parse confirmed; King of Traders resolved May 19 -> Jul 1 UTC+8). Card rendering is flaky (19 links one run, 0 the next) — low yield is expected, health reports honestly."
+
   - name: "KuCoin (events hub)"
     venue: KuCoin
     method: playwright
@@ -100,6 +109,15 @@ sources:
     enabled: true
     stale_days: 45
     parse_notes: "JS-rendered. Collect campaign links, open each for exact dates (listing hides them). May need reload/wait."
+
+  - name: "Bitget Wallet (blog promotions)"
+    venue: Bitget Wallet
+    method: playwright
+    url: "https://web3.bitget.com/en/blog/category/promotion"
+    reliability: solid
+    enabled: true
+    stale_days: 45
+    parse_notes: "THE real Bitget Wallet competition feed (found 2026-07). Their Telegram channel is mostly news/product posts, but the wallet's own blog has a 'Promotion' category carrying the onchain comps — e.g. 'Trade Reserve Protocol DTFs to Share an $80,000 Prize Pool' (Jul 9-23, dates parse CONFIRMED). Renders via Playwright (SPA); detail pages fetch fine over plain HTTP so the date hunter resolves them. Anchor text is 'Promotion<title><body>' — _extract_bitget_wallet_blog strips the chip and cuts the headline. Sibling category /blog/category/events is dead (one 2023 post)."
 
   - name: "Bitget Wallet (Telegram)"
     venue: Bitget Wallet
