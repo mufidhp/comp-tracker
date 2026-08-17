@@ -61,6 +61,22 @@ def is_avoid(venue: str, cfg: dict) -> bool:
     return venue_tier(venue, cfg) == "avoid"
 
 
+# Keyword matching must respect WORD boundaries. Plain substring matching made
+# short blockers eat innocent words — "ama" (meant for AMA sessions) killed
+# "Amazing", "Panama" and the token "Zama"; "stake" killed "Sweepstakes"; "spot"
+# matched "Spotlight". Those competitions vanished with no trace. A trailing "s"
+# is still allowed so "cfd"/"giveaway"/"loan" keep catching their plurals.
+_WORD_RE_CACHE: dict[str, "re.Pattern[str]"] = {}
+
+
+def _word_search(needle: str, haystack: str) -> bool:
+    rx = _WORD_RE_CACHE.get(needle)
+    if rx is None:
+        rx = re.compile(r"(?<![a-z0-9])" + re.escape(needle) + r"s?(?![a-z0-9])")
+        _WORD_RE_CACHE[needle] = rx
+    return bool(rx.search(haystack))
+
+
 def classify_item(title: str, body: str, cfg: dict) -> dict:
     """
     Decide keep/drop and the type of a competition-like item.
@@ -81,7 +97,7 @@ def classify_item(title: str, body: str, cfg: dict) -> dict:
         hits = []
         for k in keys or []:
             kn = " ".join(k.lower().translate(_PUNCT).split())
-            if kn and kn in text:
+            if kn and _word_search(kn, text):
                 hits.append(k)
         return hits
 

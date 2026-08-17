@@ -127,7 +127,18 @@ filter:
     - spin the wheel
     - lucky spin
     - scratch card
-    - loans
+    # "loan" also covers "loans" now that matching is word-based with an
+    # optional plural — Binance Flexible Loan (a borrowing product) was showing
+    # as a spot competition because only the plural was listed.
+    - loan
+    - borrow
+    - dual asset
+    # referral/invite-a-friend campaigns pay for recruiting, not trading — the
+    # spec excludes referral-only events ("Referral Dhamaka: Invite Friends to
+    # Share $550,000" was being kept as a spot competition)
+    - referral
+    - invite friends
+    - invite a friend
     - share your
     - migration
     - affiliate

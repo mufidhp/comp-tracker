@@ -158,10 +158,13 @@ def _scan_tail(text, endpos):
     if ym and _CLEAN_GAP.match(tail[:ym.start()]):
         yr = int(ym.group(1))
         span = max(span, endpos + ym.end())
-        if hh is None:  # "28 July 2026 08:00" — time after the year
-            after = text[endpos + ym.end():endpos + ym.end() + 12]
+        if hh is None:  # "28 July 2026 [at] 08:00" — time sits after the year
+            after = text[endpos + ym.end():endpos + ym.end() + 16]
             t2 = _TIME_RE.search(after)
-            if t2 and re.fullmatch(r"[\s,(]*", after[:t2.start()]):
+            # the word "at" must be allowed here: "July 30, 2026 at 23:59 UTC"
+            # otherwise lost its 23:59 and became midnight, so the competition
+            # read as ending a full day early
+            if t2 and re.fullmatch(r"[\s,(@]*(?:at\s+)?", after[:t2.start()], re.I):
                 hh, mm = t2.group(1), t2.group(2)
                 span = endpos + ym.end() + t2.end()
     return yr, hh, mm, span
@@ -174,7 +177,7 @@ def _collect_candidates(text, now):
     def add(pos, endpos, y, mo, d, hh, mm, had_year):
         d0 = _mk_infer(y, mo, d, hh, mm, now, had_year)
         if d0:
-            cands.append({"pos": pos, "end": endpos, "dt": d0})
+            cands.append({"pos": pos, "end": endpos, "dt": d0, "had_year": bool(had_year)})
 
     for m in _ISO_RE.finditer(text):
         y, mo, d, hh, mm = m.groups()
@@ -203,6 +206,42 @@ def _collect_candidates(text, now):
         out.append(c)
         last_end = c["end"]
     return out
+
+
+def _repair_year_span(start, end, pool):
+    """
+    Fix ranges that cross New Year.
+
+    "December 28 - January 5, 2026" gives December no year of its own, so it is
+    guessed as the year nearest today; sorting then yields 5 Jan -> 28 Dec, an
+    11-month span that reads as a live competition for the rest of the year.
+    When a span is implausibly long and one end had no stated year, shift that
+    end by a year and keep the result only if it becomes a sane, short period.
+    """
+    if not start or not end:
+        return start, end
+    if (end - start).days <= 180:
+        return start, end
+
+    def had_year(d):
+        return any(c.get("had_year") for c in pool if c["dt"] == d)
+
+    best = None
+    if not had_year(end):                      # "…- January 5" was the guess
+        try:
+            cand_end = end.replace(year=end.year - 1)
+            if 0 < (start - cand_end).days <= 180:
+                best = (cand_end, start)       # the pair swaps roles
+        except ValueError:
+            pass
+    if best is None and not had_year(start):   # "December 28 -…" was the guess
+        try:
+            cand_start = start.replace(year=start.year + 1)
+            if 0 < (cand_start - end).days <= 180:
+                best = (end, cand_start)
+        except ValueError:
+            pass
+    return best if best else (start, end)
 
 
 def extract_dates(text: str):
@@ -260,6 +299,7 @@ def extract_dates(text: str):
     dts = sorted({c["dt"] for c in pool})
     if len(dts) >= 2:
         start, end = dts[0], dts[-1]
+        start, end = _repair_year_span(start, end, pool)
     else:
         only = dts[0]
         if any(c["endh"] for c in pool if c["dt"] == only):
@@ -594,7 +634,8 @@ def _extract_okx_web3(payload, source, cfg):
         # "Claim ongoing: 05 D 11 h ...") — digits and units together, so nothing
         # numeric survives to be mistaken for a token amount.
         _TIMER = r"(?:\d{1,3}\s*[dhms]\b[\s:]*)+"
-        cleaned = re.sub(r"(?:ends?\s*in|claim ongoing)[:\s]*" + _TIMER, " ", text, flags=re.I)
+        cleaned = re.sub(r"(?:ends?\s*in|starts?\s*in|claim ongoing)[:\s]*" + _TIMER,
+                         " ", text, flags=re.I)
         cleaned = _ENDED_ON_RE.sub(" ", cleaned)
         cleaned = re.sub(r"^" + _TIMER, " ", cleaned.strip(), flags=re.I)
         cleaned = re.sub(r"\b(view details|join now|competition|ended|participants)\b",
