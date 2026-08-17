@@ -1,0 +1,81 @@
+name: Watchdog — is the scanner still alive?
+
+# WHY THIS EXISTS
+# scan.yml sends its own "scan crashed" Telegram message, but that step lives
+# INSIDE the scan job — so it can only fire if the job actually started. When
+# GitHub fails to assign a runner (it happened on 6 Aug 2026) zero steps run,
+# nothing is sent, and the dashboard just quietly goes stale.
+#
+# This separate workflow watches from the outside: it reads the committed
+# comp-data.js and complains if the data is older than the threshold. It is the
+# only alarm that still works when the scanner never starts at all.
+
+on:
+  schedule:
+    - cron: "0 1,13 * * *"   # 06:00 & 18:00 PKT — offset from the 09:00/21:00 scans
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check dashboard data freshness
+        id: check
+        env:
+          # scans run every 12h; allow generous slack for GitHub's cron delays
+          MAX_AGE_HOURS: "16"
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import os, re, datetime, sys
+
+          limit = float(os.environ.get("MAX_AGE_HOURS", "16"))
+          try:
+              text = open("comp-data.js", encoding="utf-8").read()
+          except OSError as e:
+              print(f"stale=true")
+              print(f"detail=comp-data.js is missing ({e.__class__.__name__})")
+              sys.exit(0)
+
+          m = re.search(r'generated_utc"\s*:\s*"([^"]+)"', text)
+          if not m:
+              print("stale=true")
+              print("detail=comp-data.js has no generated_utc timestamp")
+              sys.exit(0)
+
+          gen = datetime.datetime.fromisoformat(m.group(1))
+          if gen.tzinfo is None:
+              gen = gen.replace(tzinfo=datetime.timezone.utc)
+          age = (datetime.datetime.now(datetime.timezone.utc) - gen).total_seconds() / 3600
+
+          print(f"age={age:.1f}")
+          if age > limit:
+              print("stale=true")
+              print(f"detail=Dashboard data is {age:.0f} hours old "
+                    f"(expected under {limit:.0f}). The twice-daily scan has not "
+                    f"been completing — check the Actions tab.")
+          else:
+              print("stale=false")
+              print(f"detail=fresh ({age:.1f}h old)")
+          PY
+
+      - name: Report
+        run: echo "age=${{ steps.check.outputs.age }} stale=${{ steps.check.outputs.stale }} — ${{ steps.check.outputs.detail }}"
+
+      - name: Telegram alert if the scanner has gone quiet
+        if: steps.check.outputs.stale == 'true'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          DETAIL: ${{ steps.check.outputs.detail }}
+        run: |
+          if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
+            curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+              --data-urlencode "text=⚠️ Comp Tracker watchdog: ${DETAIL}" \
+              > /dev/null || true
+          fi
