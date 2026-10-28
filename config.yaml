@@ -25,6 +25,11 @@ thresholds:
   # and linger as "dates TBD" zombies. KuCoin Web3's archive alone can return ~40.
   detail_fetch_cap: 75            # max competition detail pages opened per Mode-A run
   detail_fetch_delay_sec: 0.6     # polite pause between detail-page fetches (fast HTTP-only)
+  # Links to these are a sponsor's social profile, not the event page — reading
+  # them for dates picks up tweet dates (Bybit ELSA "ended" 20 Jan 2027)
+  # (t.me is NOT listed: a t.me/<channel>/<id> link is the venue's own post)
+  date_hunt_skip_hosts: [x.com, twitter.com, youtube.com, youtu.be, instagram.com,
+                         facebook.com, linkedin.com, discord.com, discord.gg, tiktok.com]
   # Futures-track page check: each competition's own page is read ONCE for
   # derivative-participation phrases and the verdict is remembered. Hosts whose
   # pages can't be read from GitHub (CAPTCHA / empty app shells) are skipped —

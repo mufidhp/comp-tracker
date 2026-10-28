@@ -2,9 +2,9 @@
 """
 guard.py — the filter's safety test, run before every scan publishes.
 
-Every futures/derivative leak that ever reached the dashboard, and every
-genuine spot comp a filter change once wrongly dropped, is recorded in
-regression_cases.yaml. scanner.run_once() calls assert_filter_ok() first; if
+Every futures/derivative leak that ever reached the dashboard, every genuine
+spot comp a filter change once wrongly dropped, and every page wording that once
+produced wrong dates, is recorded in regression_cases.yaml. scanner.run_once() calls assert_filter_ok() first; if
 any case gives the wrong answer the scan raises, Telegram gets the crash
 alert, and the commit step never runs — so a broken filter can't quietly
 refill the dashboard with futures comps.
@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import sys
+import datetime as dt
 
 import yaml
 
@@ -42,6 +43,17 @@ def run_cases(cfg: dict, cases: dict | None = None) -> tuple[int, list[str]]:
                             f"{c['expect']}: \"{c['title'][:70]}\" ({v['reason']})")
         elif want_keep and c.get("type") and v["type"] != c["type"]:
             failures.append(f"type {v['type']} but expected {c['type']}: \"{c['title'][:70]}\"")
+
+    for c in cases.get("date_cases") or []:
+        n += 1
+        anchor = None
+        if c.get("anchor"):
+            anchor = dt.datetime.fromisoformat(str(c["anchor"]))
+        _s, end, conf = parsers.extract_dates(c["text"], anchor=anchor)
+        if c.get("end") and (end or "")[:16] != c["end"]:
+            failures.append(f"date: end {end} but expected {c['end']}: \"{c['text'][:60]}\"")
+        elif c.get("conf") and conf != c["conf"]:
+            failures.append(f"date: confidence {conf} but expected {c['conf']}: \"{c['text'][:60]}\"")
 
     for c in cases.get("page_cases") or []:
         n += 1

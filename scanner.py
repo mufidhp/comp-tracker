@@ -289,7 +289,7 @@ def check_derivative_tracks(records, cfg, now: dt.datetime):
 # --------------------------------------------------------------------------- #
 #  Mode-A free date extraction from detail pages (NEW items only, capped)
 # --------------------------------------------------------------------------- #
-def hunt_dates(records, cfg):
+def hunt_dates(records, cfg, only_old_parser=False):
     """
     Open detail pages and regex-extract competition dates (fast HTTP only, capped).
     Runs EVERY scan for any record whose dates aren't confirmed — not just new ones —
@@ -298,6 +298,7 @@ def hunt_dates(records, cfg):
     """
     cap = int(cfg.get("thresholds", {}).get("detail_fetch_cap", 40))
     delay = float(cfg.get("thresholds", {}).get("detail_fetch_delay_sec", 1.5))
+    social = [h.lower() for h in (cfg.get("thresholds", {}).get("date_hunt_skip_hosts") or [])]
     budget = cap
     # date-less records first — they gain the most from a fetch
     ordered = sorted(records, key=lambda r: 0 if not r.get("end_utc") else 1)
@@ -306,7 +307,28 @@ def hunt_dates(records, cfg):
             break
         if r.get("tier") == "avoid":
             continue
-        if r.get("date_confidence") == "confirmed" and r.get("end_utc"):
+        # second pass after the merge: only records whose dates came from an older
+        # parser — retained ones the sources no longer list would otherwise keep a
+        # wrong future end date until it passes
+        if only_old_parser and r.get("dates_v", 1) >= parsers.DATE_PARSER_VERSION:
+            continue
+        # confirmed dates are trusted — but only if a CURRENT parser produced them.
+        # Older versions guessed missing years from today and read prize-payout
+        # windows as the period (Trust Wallet's 2025 PancakeSwap comp sat on the
+        # dashboard as "confirmed, ends April 2027"); those get re-read once.
+        if (r.get("date_confidence") == "confirmed" and r.get("end_utc")
+                and (r.get("dates_v", 1) >= parsers.DATE_PARSER_VERSION or r.get("note"))):
+            continue
+        # A social-media link is the sponsor's profile, not the event page — its
+        # dates are tweet dates. Bybit's ELSA Token Splash linked to x.com/HeyElsaAI
+        # and showed "ends 20 Jan 2027" from old tweets, 2.5 months after Bybit
+        # last listed it. Never read dates there; drop any an old parser took from it.
+        host = fetchers.host_of(r.get("official_link", ""))
+        if any(host == h or host.endswith("." + h) for h in social):
+            if r.get("dates_v", 1) < parsers.DATE_PARSER_VERSION and not r.get("note"):
+                r["start_utc"] = r["end_utc"] = None
+                r["date_confidence"] = "unverified"
+                r["dates_v"] = parsers.DATE_PARSER_VERSION
             continue
         html = fetchers.fetch_detail_fast(r.get("official_link", ""), cfg)  # fast HTTP-only
         budget -= 1
@@ -315,7 +337,9 @@ def hunt_dates(records, cfg):
             continue
         _PAGE_CACHE[r.get("official_link", "")] = html   # reused by the futures check
         text = parsers._text(html) if "<" in html else html
-        s, e, conf = parsers.extract_dates(text)
+        # the page's own publish date decides the year of year-less dates
+        s, e, conf = parsers.extract_dates(text, anchor=parsers.page_published(html))
+        r["dates_v"] = parsers.DATE_PARSER_VERSION
         if e:
             r["start_utc"] = s or r.get("start_utc")
             r["end_utc"] = e
@@ -345,7 +369,10 @@ def merge_and_retain(fresh: list, prev_data: dict, cfg: dict, now: dt.datetime):
             # PROTECT Mode-B enrichment: keep note + confirmed dates from previous
             if p.get("note"):
                 r["note"] = p["note"]
-            if p.get("date_confidence") == "confirmed" and r.get("date_confidence") != "confirmed":
+            # (only dates from the current parser or a smart scan — older parser
+            # versions produced confident-looking wrong years)
+            if (p.get("date_confidence") == "confirmed" and r.get("date_confidence") != "confirmed"
+                    and (p.get("dates_v", 1) >= parsers.DATE_PARSER_VERSION or p.get("note"))):
                 r["start_utc"] = p.get("start_utc")
                 r["end_utc"] = p.get("end_utc")
                 r["date_confidence"] = "confirmed"
@@ -380,11 +407,26 @@ def merge_and_retain(fresh: list, prev_data: dict, cfg: dict, now: dt.datetime):
             if v["keep"]:
                 fresh_by_id[pid] = p
 
-    # drop ended-beyond-retention, stale archive entries (started long ago, no end),
-    # and anything a smart scan verdicted as not-a-competition
+    return retention_filter(list(fresh_by_id.values()), cfg, now)
+
+
+def retention_filter(records, cfg, now: dt.datetime):
+    """
+    Drop ended-beyond-retention, stale archive entries (started long ago, no end),
+    and anything a smart scan verdicted as not-a-competition.
+    """
+    th = cfg.get("thresholds", {})
+    retention = dt.timedelta(days=th.get("retention_days", 7))
     stale_start = dt.timedelta(days=th.get("stale_start_days", 45))
+    absent_drop = dt.timedelta(days=th.get("absent_drop_days", 7))
     out = []
-    for c in fresh_by_id.values():
+    for c in records:
+        # no end date and the sources stopped listing it — e.g. a record whose
+        # fake end date was just cleared (Bybit ELSA, last listed 10 Aug)
+        if not c.get("end_utc"):
+            seen = _parse_iso(c.get("last_seen_utc")) or _parse_iso(c.get("first_seen_utc"))
+            if seen and (now - seen) > absent_drop:
+                continue
         if c.get("smart_verdict") == "exclude":
             continue
         end = _parse_iso(c.get("end_utc"))
@@ -465,6 +507,9 @@ def run_once(cfg, sources, out_dir, dry_run=False):
     # dedup AGAIN post-merge: a retained old record (different id/url) can duplicate
     # a fresh one — e.g. the aggregator's short title vs the venue's full title.
     merged = dedup(merged)
+    merged = hunt_dates(merged, cfg, only_old_parser=True)
+    # re-apply retention: re-read dates can reveal a competition ended long ago
+    merged = retention_filter(merged, cfg, now)
 
     # read each competition's own page once for a hidden futures/margin track
     merged = check_derivative_tracks(merged, cfg, now)

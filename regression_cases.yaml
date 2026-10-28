@@ -53,6 +53,39 @@ title_cases:
   # FUTURES TRACK badge, hidden in Halal-strict mode)
   - {title: "Spot & Futures Trading Competition: win a share of 50,000 USDT", expect: keep, type: mixed}
 
+# Date reading: real page wording that once produced wrong dates.
+#   anchor = the page's publish date (YYYY-MM-DD), when it has one
+#   end = expected end (UTC, compared to the minute); conf = expected confidence
+date_cases:
+  # Trust Wallet 2025 comp: year-less dates, "12:00pm" times, a prize-payout
+  # window — shown as "confirmed, ends 10 Apr 2027" before the fix
+  - text: "Campaign Duration: March 12th 12:00pm UTC - March 27th 12:00pm UTC Reward Pool: $200,000. Distribution Timeline: Within 2 weeks after the campaign ends (March 28th - April 10th)"
+    anchor: "2025-03-12"
+    end: "2025-03-27T12:00"
+    conf: confirmed
+  - text: "Campaign Duration : November 18th, 2 PM UTC, to December 17th, 2 PM UTC Minimum Swap Amount. Distribution Timeline : Within 10 days after the campaign [Dec 17th 14:00 UTC - Dec 27th 14:00 UTC]"
+    anchor: "2024-11-19"
+    end: "2024-12-17T14:00"
+    conf: confirmed
+  # a guessed year (no publish date, no year on the page) must never be "confirmed"
+  - text: "Campaign Duration: March 12th 12:00pm UTC - March 27th 12:00pm UTC"
+    conf: unverified
+  # Bitget Global Markets: "7:00 PM" was read as 07:00, ending it 12 hours early
+  - text: "Registration and trading period: October 21, 2026, 7:00 PM - November 4, 2026, 7:00 PM (UTC+8)"
+    end: "2026-11-04T11:00"
+    conf: confirmed
+  - text: "The competition ends July 30, 2026 at 23:59 UTC"
+    end: "2026-07-30T23:59"
+    conf: confirmed
+  - text: "Event period: December 28 - January 5, 2026 (UTC)"
+    end: "2026-01-05T00:00"
+  - text: "Phase 1 (July 10 10:00 UTC - July 22 10:00 UTC, 2026) Phase 2 (July 22 - August 6 23:59 UTC, 2026)"
+    end: "2026-08-06T23:59"
+    conf: confirmed
+  - text: "Rewards will be distributed by 2026-11-20. Event period: 2026-10-27 10:00 to 2026-11-03 10:00 (UTC)"
+    end: "2026-11-03T10:00"
+    conf: confirmed
+
 # Competition pages: does the futures-track check read them correctly?
 # Built to match the real page structures it was tuned on.
 page_cases:

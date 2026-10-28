@@ -81,7 +81,64 @@ _CORE_MDY = re.compile(r"\b" + _MON_PAT + r"\.?\s{0,3}(\d{1,2})(?:st|nd|rd|th)?(
 # "22 July [2026]"
 _CORE_DMY = re.compile(r"\b(\d{1,2})(?:st|nd|rd|th)?(?!\d)\s{0,3}" + _MON_PAT + r"\b\.?", re.I)
 _TIME_RE = re.compile(r"(\d{1,2}):(\d{2})")
+# "12:00pm", "2 PM", "10:30 a.m." — a bare "2 PM" has no colon, so _TIME_RE
+# alone missed it, and the unread "pm" broke the range between two dates
+# ("March 12th 12:00pm UTC - March 27th" was never seen as a range)
+_TIME12_RE = re.compile(r"(\d{1,2})(?::(\d{2}))?\s*([ap])\.?\s?m\b\.?", re.I)
 _YEAR_RE = re.compile(r"\b(20\d{2})\b")
+
+# bump when date parsing changes in a way that makes earlier stored dates
+# untrustworthy — records hunted by an older version are re-read once
+DATE_PARSER_VERSION = 2
+
+
+def _find_time(s: str):
+    """First time in s as (hh, mm, start, end) on a 24h clock, or None."""
+    m12 = _TIME12_RE.search(s)
+    m24 = _TIME_RE.search(s)
+    if m12 and (not m24 or m12.start() <= m24.start()):
+        hh = int(m12.group(1)) % 12 + (12 if m12.group(3).lower() == "p" else 0)
+        return hh, int(m12.group(2) or 0), m12.start(), m12.end()
+    if m24:
+        return int(m24.group(1)), int(m24.group(2)), m24.start(), m24.end()
+    return None
+
+
+_PUB_JSONLD = re.compile(r'"datePublished"\s*:\s*"([^"]+)"')
+_PUB_META = re.compile(
+    r'<meta[^>]+(?:property|name|itemprop)\s*=\s*"(?:article:published_time|datePublished|'
+    r'publish(?:ed)?[_-]?date|date)"[^>]*content\s*=\s*"([^"]+)"', re.I)
+_PUB_META_REV = re.compile(
+    r'<meta[^>]+content\s*=\s*"([^"]+)"[^>]+(?:property|name|itemprop)\s*=\s*"'
+    r'(?:article:published_time|datePublished|publish(?:ed)?[_-]?date)"', re.I)
+
+
+def page_published(html: str):
+    """
+    The article's PUBLISH date from its metadata (JSON-LD datePublished or
+    article:published_time), as a naive UTC datetime — never the "updated" date.
+    Used to give year-less dates the right year: Trust Wallet's 2025 PancakeSwap
+    comp says only "March 12th - March 27th", and guessing the year from today
+    made it a 2027 competition.
+    """
+    if not html:
+        return None
+    for rx in (_PUB_JSONLD, _PUB_META, _PUB_META_REV):
+        m = rx.search(html)
+        if not m:
+            continue
+        raw = m.group(1).strip()
+        try:
+            d = dt.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            return d.astimezone(UTC).replace(tzinfo=None) if d.tzinfo else d
+        except ValueError:
+            pass
+        m2 = re.search(_MON_PAT + r"\.?\s+(\d{1,2}),?\s+(20\d{2})", raw, re.I)
+        if m2:
+            d = _mk(m2.group(3), _MONTHS[m2.group(1)[:3].lower()], m2.group(2), 0, 0)
+            if d:
+                return d
+    return None
 
 # ---- context patterns ----------------------------------------------------
 # Dates right after these words are ARTICLE metadata, not competition dates.
@@ -127,7 +184,10 @@ def _mk(y, mo, d, hh, mm):
 
 
 def _mk_infer(y, mo, d, hh, mm, now, had_year):
-    """Build a datetime; if the year is missing, pick the year closest to now."""
+    """
+    Build a datetime; if the year is missing, pick the year closest to `now` —
+    which is the page's publish date (+30 days) when known, else today.
+    """
     if had_year:
         d0 = _mk(y, mo, d, hh, mm)
         return d0 if d0 and 2020 <= d0.year <= 2035 else None
@@ -150,23 +210,23 @@ def _scan_tail(text, endpos):
     span = endpos
     hh = mm = None
     yr = None
-    tm = _TIME_RE.search(tail)
-    if tm and re.fullmatch(r"[\s,(@]*(?:at\s*)?", tail[:tm.start()], re.I):
-        hh, mm = tm.group(1), tm.group(2)
-        span = endpos + tm.end()
+    tm = _find_time(tail)
+    if tm and re.fullmatch(r"[\s,(@]*(?:at\s*)?", tail[:tm[2]], re.I):
+        hh, mm = tm[0], tm[1]
+        span = endpos + tm[3]
     ym = _YEAR_RE.search(tail)
     if ym and _CLEAN_GAP.match(tail[:ym.start()]):
         yr = int(ym.group(1))
         span = max(span, endpos + ym.end())
         if hh is None:  # "28 July 2026 [at] 08:00" — time sits after the year
             after = text[endpos + ym.end():endpos + ym.end() + 16]
-            t2 = _TIME_RE.search(after)
+            t2 = _find_time(after)
             # the word "at" must be allowed here: "July 30, 2026 at 23:59 UTC"
             # otherwise lost its 23:59 and became midnight, so the competition
             # read as ending a full day early
-            if t2 and re.fullmatch(r"[\s,(@]*(?:at\s+)?", after[:t2.start()], re.I):
-                hh, mm = t2.group(1), t2.group(2)
-                span = endpos + ym.end() + t2.end()
+            if t2 and re.fullmatch(r"[\s,(@]*(?:at\s+)?", after[:t2[2]], re.I):
+                hh, mm = t2[0], t2[1]
+                span = endpos + ym.end() + t2[3]
     return yr, hh, mm, span
 
 
@@ -244,7 +304,16 @@ def _repair_year_span(start, end, pool):
     return best if best else (start, end)
 
 
-def extract_dates(text: str):
+# Dates that describe when PRIZES are paid, not when the competition runs:
+# "Distribution Timeline: within 2 weeks after the campaign ends (March 28th -
+# April 10th)". Taking that window as the period kept ended comps alive.
+_PAYOUT_BACK = re.compile(
+    r"(distribut\w*|pay-?outs?|paid out|rewards? (?:will be )?(?:sent|paid|credited|issued|"
+    r"distributed|delivered)|claim(?:ing)? (?:period|window)|airdrop(?:ped)? (?:on|by|within)|"
+    r"within \d+ (?:working |business )?(?:days|weeks) after)", re.I)
+
+
+def extract_dates(text: str, anchor: "dt.datetime | None" = None):
     """
     Competition start/end extraction — context-aware.
 
@@ -254,18 +323,23 @@ def extract_dates(text: str):
       * ranged pairs ("July 10 10:00 UTC – July 22", "Jul 17 - Jul 29") are the
         strongest signal; multi-phase events use earliest start -> latest end;
       * a lone date after "ends/ended on/until/deadline" is an END date;
-      * year-less dates ("Jul 17") get the year closest to today;
+      * year-less dates ("Jul 17") get the year closest to the page's publish
+        date (`anchor`) when known, else closest to today;
+      * prize-payout windows ("Distribution Timeline: March 28th - April 10th")
+        are not the competition period;
       * numeric 05/21/2026 dates are understood;
       * confidence is 'confirmed' ONLY if the page states a timezone AND an end
-        date was found.
+        date was found AND its year is certain (stated, or anchored to the
+        publish date) — a guessed year is never "confirmed".
     Returns (start_utc_iso|None, end_utc_iso|None, confidence).
     """
     if not text:
         return None, None, "unverified"
     text = re.sub(r"\s+", " ", text)[:8000]
-    now = dt.datetime.now(UTC).replace(tzinfo=None)
+    today = dt.datetime.now(UTC).replace(tzinfo=None)
+    ref = (anchor + dt.timedelta(days=30)) if anchor else today
     offset, _label = _detect_offset(text)
-    cands = _collect_candidates(text, now)
+    cands = _collect_candidates(text, ref)
     if not cands:
         return None, None, "unverified"
 
@@ -276,20 +350,30 @@ def extract_dates(text: str):
         c["meta"] = bool(_META_BACK.search(back[-32:])) and not _PERIOD_HINT.search(back[-22:])
         c["endh"] = bool(_END_BACK.search(back))
         c["period"] = bool(_PERIOD_HINT.search(back) or _PERIOD_HINT.search(fwd))
+        c["payout"] = bool(_PAYOUT_BACK.search(text[max(0, c["pos"] - 90):c["pos"]]))
         c["ranged"] = False
     for i in range(len(cands) - 1):
         gap = text[cands[i]["end"]:cands[i + 1]["pos"]]
         if len(gap) <= 32 and _GAP_RANGE.match(gap):
             cands[i]["ranged"] = cands[i + 1]["ranged"] = True
+            # the second date of a payout range inherits the payout flag
+            if cands[i]["payout"]:
+                cands[i + 1]["payout"] = True
 
     # keep plausible, non-metadata dates. The lower bound is deliberately WIDE
     # (420d): old stated dates must stay readable so long-ended archive events
     # get a past end_utc and retention removes them — a tight bound made them
-    # resurrect forever as "dates TBD" zombies.
-    lo, hi = now - dt.timedelta(days=420), now + dt.timedelta(days=400)
+    # resurrect forever as "dates TBD" zombies. With a publish date the window
+    # sits around THAT date, so a 2025 post still yields its (past) 2025 dates.
+    base = anchor if anchor else today
+    lo, hi = base - dt.timedelta(days=420), base + dt.timedelta(days=400)
     usable = [c for c in cands if not c["meta"] and lo <= c["dt"] <= hi]
     if not usable:
         return None, None, "unverified"
+    # prize-payout windows only count when nothing else gives the period
+    period_dates = [c for c in usable if not c["payout"]]
+    if period_dates:
+        usable = period_dates
 
     # strongest evidence first: ranges > hinted singles > anything left
     ranged = [c for c in usable if c["ranged"]]
@@ -314,7 +398,10 @@ def extract_dates(text: str):
         as_utc = naive - dt.timedelta(hours=off)
         return as_utc.replace(tzinfo=UTC).replace(microsecond=0).isoformat()
 
-    conf = "confirmed" if (offset is not None and end is not None) else "unverified"
+    year_certain = anchor is not None or any(
+        c.get("had_year") for c in pool if c["dt"] == end)
+    conf = ("confirmed" if (offset is not None and end is not None and year_certain)
+            else "unverified")
     return to_utc(start), to_utc(end), conf
 
 
@@ -1138,7 +1225,15 @@ def build_record(cand: dict, source: dict, cfg: dict, now_iso: str):
         end_utc = cand.get("end_utc")
         conf = cand.get("date_confidence", "unverified")
     else:
-        start_utc, end_utc, conf = extract_dates(body)
+        pub = cand.get("published_utc")
+        anchor = None
+        if pub:
+            try:
+                p = dt.datetime.fromisoformat(str(pub).replace("Z", "+00:00"))
+                anchor = p.astimezone(UTC).replace(tzinfo=None) if p.tzinfo else p
+            except ValueError:
+                anchor = None
+        start_utc, end_utc, conf = extract_dates(body, anchor=anchor)
 
     rec = {
         "id": stable_id(url, venue, name),
@@ -1153,6 +1248,7 @@ def build_record(cand: dict, source: dict, cfg: dict, now_iso: str):
         "start_utc": start_utc,
         "end_utc": end_utc,
         "date_confidence": conf,
+        "dates_v": DATE_PARSER_VERSION,
         "structure": cand.get("structure"),
         "entry": None,
         "eligibility": None,
