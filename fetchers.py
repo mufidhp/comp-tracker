@@ -13,6 +13,8 @@ Nothing here parses competition data — that's parsers.py.
 """
 from __future__ import annotations
 
+import re
+import json
 import time
 import datetime as dt
 from urllib.parse import urlparse, urlencode
@@ -259,6 +261,61 @@ def fetch_detail_fast(url: str, cfg: dict, timeout: float = 8.0) -> str | None:
     except Exception:
         return None
     return None
+
+
+_BINANCE_CODE = re.compile(r"binance\.com/.*/announcement/(?:detail/)?([0-9a-f]{32})", re.I)
+_BINANCE_DETAIL = ("https://www.binance.com/bapi/composite/v1/public/cms/article/detail/query"
+                   "?articleCode={code}")
+
+
+def fetch_binance_article(url: str, cfg: dict, timeout: float = 10.0):
+    """
+    Binance announcement pages are CAPTCHA-walled to automation, so every Binance
+    comp sat as "dates TBD" — including ended ones (Alpha ACU, ended 23 Oct). The
+    same public CMS API the Binance source already lists from also serves each
+    article's full text and publish date.
+
+    Returns (plain_text, published_naive_utc) or None.
+    """
+    m = _BINANCE_CODE.search(url or "")
+    if not m:
+        return None
+    try:
+        r = requests.get(_BINANCE_DETAIL.format(code=m.group(1)), headers=_headers(cfg),
+                         timeout=timeout)
+        data = (r.json() or {}).get("data") or {}
+    except Exception:
+        return None
+    body = data.get("body")
+    if not body:
+        return None
+    parts = []
+
+    def walk(node):
+        if isinstance(node, dict):
+            if node.get("node") == "text" and node.get("text"):
+                parts.append(str(node["text"]))
+            for ch in node.get("child") or []:
+                walk(ch)
+            if node.get("tag") in ("p", "li", "tr", "h1", "h2", "h3", "h4", "br", "td"):
+                parts.append("\n")
+        elif isinstance(node, list):
+            for ch in node:
+                walk(ch)
+
+    try:
+        walk(json.loads(body) if isinstance(body, str) else body)
+    except (ValueError, TypeError):
+        return None
+    text = re.sub(r"[ \t]+", " ", " ".join(parts))
+    pub = None
+    try:
+        if data.get("publishDate"):
+            pub = dt.datetime.fromtimestamp(int(data["publishDate"]) / 1000, dt.timezone.utc) \
+                .replace(tzinfo=None)
+    except (ValueError, TypeError, OSError):
+        pub = None
+    return (f"{data.get('title') or ''}\n{text}", pub) if len(text) > 100 else None
 
 
 def host_of(url: str) -> str:

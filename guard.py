@@ -49,11 +49,31 @@ def run_cases(cfg: dict, cases: dict | None = None) -> tuple[int, list[str]]:
         anchor = None
         if c.get("anchor"):
             anchor = dt.datetime.fromisoformat(str(c["anchor"]))
-        _s, end, conf = parsers.extract_dates(c["text"], anchor=anchor)
+        start, end, conf = parsers.extract_dates(c["text"], anchor=anchor)
         if c.get("end") and (end or "")[:16] != c["end"]:
             failures.append(f"date: end {end} but expected {c['end']}: \"{c['text'][:60]}\"")
+        elif c.get("start") and (start or "")[:16] != c["start"]:
+            failures.append(f"date: start {start} but expected {c['start']}: \"{c['text'][:60]}\"")
         elif c.get("conf") and conf != c["conf"]:
             failures.append(f"date: confidence {conf} but expected {c['conf']}: \"{c['text'][:60]}\"")
+
+    for c in cases.get("chance_cases") or []:
+        n += 1
+        got = bool(classify.chance_only_evidence(c["text"], cfg))
+        if got != bool(c["expect_chance"]):
+            failures.append(f"chance check said {'luck-based' if got else 'competition'}: {c['name']}")
+
+    for c in cases.get("okx_cases") or []:
+        n += 1
+        cards = parsers._extract_okx_web3(c["html"], {"venue": "OKX Web3 Wallet"}, cfg)
+        if not cards:
+            failures.append(f"OKX card not parsed: {c['html'][:60]}")
+            continue
+        card = cards[0]
+        if bool(card.get("finished")) != bool(c["expect_finished"]):
+            failures.append(f"OKX card finished={card.get('finished')}: {c['html'][:70]}")
+        elif c.get("expect_end") and not card.get("end_utc"):
+            failures.append(f"OKX live card lost its countdown end date: {c['html'][:70]}")
 
     for c in cases.get("page_cases") or []:
         n += 1

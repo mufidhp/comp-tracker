@@ -114,6 +114,30 @@ def derivative_page_evidence(page_text: str, cfg: dict) -> list[str]:
     return found
 
 
+def chance_only_evidence(page_text: str, cfg: dict) -> str | None:
+    """
+    The chance phrase that shows a promo pays by luck, not by trading rank —
+    or None. A page that ranks traders anywhere is a real competition even if it
+    also runs a side draw (Bitget Global Markets: leaderboard + mystery boxes).
+    """
+    f = cfg.get("filter") or {}
+
+    def first(pats):
+        for p in pats or []:
+            try:
+                m = re.search(p, page_text or "", re.I)
+            except re.error:
+                continue
+            if m:
+                return m.group(0).lower()
+        return None
+
+    hit = first(f.get("chance_page_phrases"))
+    if hit and not first(f.get("ranking_page_phrases")):
+        return hit
+    return None
+
+
 def classify_item(title: str, body: str, cfg: dict, link: str = "") -> dict:
     """
     Decide keep/drop and the type of a competition-like item.
@@ -180,6 +204,21 @@ def classify_item(title: str, body: str, cfg: dict, link: str = "") -> dict:
     if deriv:
         return {"keep": False, "type": None, "score": score,
                 "reason": f"derivative product in title/link: '{deriv[0]}'"}
+
+    # Not-a-trading-competition words that are only safe to judge in the TITLE
+    # (a real comp's Telegram post can mention "creators" or "feedback" in passing).
+    tx = [k for k in (f.get("title_exclude_keywords") or [])
+          if _word_search(" ".join(k.lower().translate(_PUNCT).split()), title_text)]
+    if tx:
+        return {"keep": False, "type": None, "score": score,
+                "reason": f"not a trading competition (title: '{tx[0]}')"}
+    for pat in (f.get("title_exclude_patterns") or []):
+        try:
+            if re.search(pat, title_text, re.I):
+                return {"keep": False, "type": None, "score": score,
+                        "reason": f"not a trading competition (title pattern: {pat[:28]})"}
+        except re.error:
+            continue
 
     # A real spot+futures combo must SAY spot trading in its title; a lone "spot"
     # doesn't count ("earn your spot" is a seat). Punctuation is stripped, so

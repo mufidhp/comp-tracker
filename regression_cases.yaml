@@ -34,7 +34,19 @@ title_cases:
   - {title: "South Asia Exclusive: Referral Dhamaka 2026: Invite Friends to Share $550,000 in USDT Token Vouchers", expect: drop}
   - {title: "Trade every day! Spin to win up to $20 rToken", expect: drop}
 
+  # ---------- not trading competitions (audit 28 Oct 2026) ----------
+  - {title: "Hold RLUSD in Any Binance Accounts to Share 600,000 XRP Rewards", expect: drop}
+  - {title: "Community Voice: Give Feedback on DYOR to Share 500 USDC in Rewards", expect: drop}
+  - {title: "Bitget Insights Creator Incentive Program is now live! With a total prize pool of 10,000 USDT", expect: drop}
+  - {title: "The ByX IMPACT Leaderboard just got bigger! Eligible creators can now compete", expect: drop}
+  - {title: "MENA Exclusive: Complete KYC & Trade to Win!", expect: drop}
+  - {title: "Deposit &Trade - Spin instantly to win up to $1,000 and iPhone Duo !", expect: drop}
+  - {title: "POV orders are now live on Bybit Spot! Trading large orders? Let POV do the work", expect: drop}
+
   # ---------- genuine spot / onchain comps that must ALWAYS stay ----------
+  - {title: "Trade and hold: Spot Trading Tournament share 10,000 USDT", expect: keep, type: spot}
+  - {title: "Threshold bonus: Spot Trading Competition share 5,000 USDT", expect: keep, type: spot}
+  - {title: "The $PYBOBO Trading Competition is LIVE! Trade to share 100,000 PYBOBO", expect: keep}
   - {title: "Spot Trading Tournament Season 9: Trade to Share Up to 400 BNB Token Vouchers", expect: keep, type: spot}
   - {title: "Spot Trading Arena", expect: keep, type: spot}
   - {title: "Amazing Spot Trading Competition: Trade to Share 100,000 USDT", expect: keep, type: spot}
@@ -85,6 +97,49 @@ date_cases:
   - text: "Rewards will be distributed by 2026-11-20. Event period: 2026-10-27 10:00 to 2026-11-03 10:00 (UTC)"
     end: "2026-11-03T10:00"
     conf: confirmed
+  # KuCoin Web3: time BEFORE the date — every KuCoin Web3 comp was "dates TBD"
+  # and ended ones (MemeX, 22 Sep) stayed on the dashboard
+  - text: "Last updated: 09/15/2026 11:14:00 KuCoin Web3 Wallet is excited to launch the MemeX Trading Competition. Event Period: From 10:00 on September 15, 2026 to 10:00 on September 22, 2026 (UTC) Total Prize Pool: Up to 3,000 USDT"
+    end: "2026-09-22T10:00"
+    conf: confirmed
+  - text: "Event Period: From 08:00 on May 29, 2026 to 08:00 on June 28, 2026 (UTC)"
+    end: "2026-06-28T08:00"
+  # one month, a day range
+  - text: "Promotion Period: Oct 16-29, 2026 Join Now"
+    end: "2026-10-29T00:00"
+  # "Phase 2 October 23" — the 2 is the phase, not the day
+  - text: "Phase 2 October 23 - October 30, 2026 (UTC)"
+    end: "2026-10-30T00:00"
+    start: "2026-10-23T00:00"
+
+# Pages that pay by luck with no ranking are not competitions; a ranked
+# competition with a side draw is.
+chance_cases:
+  - name: "KuCoin VAYLA — random lucky wallets, no ranking"
+    expect_chance: true
+    text: "Event Period: From 08:00 on May 29, 2026 to 08:00 on June 28, 2026 (UTC). After the campaign ends, 3,000 lucky high-quality wallets will be randomly selected from all users who complete all of the following tasks. Tasks: Complete Social tasks; Swap at least $200 on BNB Smart Chain."
+  - name: "Binance Starter Carnival Gold Edition — draw attempts"
+    expect_chance: true
+    text: "Complete new user tasks to earn activity attempts to win a share of rewards in Tether Gold (XAUT) tokens. Each attempt gives you a chance to receive an XAUT token voucher worth up to $200."
+  - name: "Bitget stock competition — mystery boxes AND a leaderboard: keep"
+    expect_chance: false
+    text: "Lucky Mystery Boxes: 30,000 USDT. Stock spot leaderboard: rank by stock spot trading volume during the event. 1st place receives 3,000 USDT."
+  - name: "Binance spot tournament — ranked by volume: keep"
+    expect_chance: false
+    text: "Rankings Based on the Cumulative Trading Volume. 1st Place 12 BNB. 6th - 20th Places: an equal split of 40 BNB."
+
+# OKX Boost listing cards: a card in its claim phase has finished.
+okx_cases:
+  - html: '<a href="/boost/trading-competition/tech-innovators">Competition X Layer Tech Innovators 200,000 USDG Claimable in: 01 D 18 h 43 m 08 s</a>'
+    expect_finished: true
+  - html: '<a href="/boost/x-launch/zig-finance">Claim ongoing: 09 D 19 h 42 m 51 s View details ZIG Finance X Launch</a>'
+    expect_finished: true
+  - html: '<a href="/boost/trading-competition/earnings">New Competition X Layer Earnings 260,000 USDG Ends in: 05 D 16 h 43 m 08 s</a>'
+    expect_finished: false
+    expect_end: true
+  - html: '<a href="/boost/x-launch/axis-robotics-ii">Ends in: 00 D 18 h 42 m 51 s Join Axis Robotics X Launch II</a>'
+    expect_finished: false
+    expect_end: true
 
 # Competition pages: does the futures-track check read them correctly?
 # Built to match the real page structures it was tuned on.

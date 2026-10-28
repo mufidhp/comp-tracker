@@ -128,16 +128,18 @@ def page_published(html: str):
         if not m:
             continue
         raw = m.group(1).strip()
+        d = None
         try:
             d = dt.datetime.fromisoformat(raw.replace("Z", "+00:00"))
-            return d.astimezone(UTC).replace(tzinfo=None) if d.tzinfo else d
+            d = d.astimezone(UTC).replace(tzinfo=None) if d.tzinfo else d
         except ValueError:
-            pass
-        m2 = re.search(_MON_PAT + r"\.?\s+(\d{1,2}),?\s+(20\d{2})", raw, re.I)
-        if m2:
-            d = _mk(m2.group(3), _MONTHS[m2.group(1)[:3].lower()], m2.group(2), 0, 0)
-            if d:
-                return d
+            m2 = re.search(_MON_PAT + r"\.?\s+(\d{1,2}),?\s+(20\d{2})", raw, re.I)
+            if m2:
+                d = _mk(m2.group(3), _MONTHS[m2.group(1)[:3].lower()], m2.group(2), 0, 0)
+        # placeholder metadata exists (KuCoin's VAYLA page claims 1792) — a
+        # nonsense publish date must not steer the year of real dates
+        if d and 2015 <= d.year <= 2035:
+            return d
     return None
 
 # ---- context patterns ----------------------------------------------------
@@ -230,11 +232,39 @@ def _scan_tail(text, endpos):
     return yr, hh, mm, span
 
 
+# A time written BEFORE its date: KuCoin's "From 10:00 on October 23, 2026 to
+# 10:00 on October 30, 2026 (UTC)". Unread, the "10:00 on" sat between the two
+# dates and hid the range, so KuCoin Web3 comps never got an end date and ended
+# ones (MemeX, 22 Sep) stayed on the dashboard as "dates TBD".
+_TIME_BEFORE = re.compile(
+    r"(\d{1,2})(?::(\d{2}))?\s*(?:([ap])\.?\s?m\.?)?\s*(?:on|,)?\s*$", re.I)
+# "Oct 16-29, 2026": one month, a day range, then the year
+_DAY_RANGE_AFTER = re.compile(r"^\s?[-–]\s?(\d{1,2})(?:st|nd|rd|th)?(?!\d)(?:,?\s*(20\d{2}))?")
+
+
+def _scan_head(text, pos):
+    """A time just before a date ("10:00 on October 23") -> (hh, mm, new_pos) or None."""
+    head = text[max(0, pos - 16):pos]
+    m = _TIME_BEFORE.search(head)
+    if not m or (m.group(2) is None and m.group(3) is None):
+        return None          # a bare number isn't a time ("Phase 2 October 23")
+    hh = int(m.group(1))
+    if m.group(3):
+        hh = hh % 12 + (12 if m.group(3).lower() == "p" else 0)
+    if hh > 23:
+        return None
+    return hh, int(m.group(2) or 0), pos - (len(head) - m.start())
+
+
 def _collect_candidates(text, now):
     """Find every date mention with its text span. Returns sorted, de-overlapped list."""
     cands = []
 
     def add(pos, endpos, y, mo, d, hh, mm, had_year):
+        if hh is None:
+            before = _scan_head(text, pos)
+            if before:
+                hh, mm, pos = before
         d0 = _mk_infer(y, mo, d, hh, mm, now, had_year)
         if d0:
             cands.append({"pos": pos, "end": endpos, "dt": d0, "had_year": bool(had_year)})
@@ -250,10 +280,23 @@ def _collect_candidates(text, now):
     for m in _CORE_MDY.finditer(text):
         mo = _MONTHS.get(m.group(1)[:3].lower())
         if mo:
+            dr = _DAY_RANGE_AFTER.match(text[m.end():m.end() + 14])
+            if dr and int(dr.group(1)) > int(m.group(2)):
+                # "Oct 16-29, 2026" -> two dates; the gap between them is the "-",
+                # which the range check below recognises
+                yr = int(dr.group(2)) if dr.group(2) else None
+                add(m.start(), m.end(), yr, mo, m.group(2), None, None, yr is not None)
+                second = m.end() + dr.start(1)
+                add(second, m.end() + dr.end(), yr, mo, dr.group(1), None, None, yr is not None)
+                continue
             yr, hh, mm, span = _scan_tail(text, m.end())
             add(m.start(), span, yr, mo, m.group(2), hh, mm, yr is not None)
     for m in _CORE_DMY.finditer(text):
         mo = _MONTHS.get(m.group(2)[:3].lower())
+        # "Phase 2 October 23" / "Round 3 July 10": the month is followed by its
+        # own day, so the number in front is a phase/round, not the day
+        if mo and re.match(r"\s{0,3}\d{1,2}(?!\d)", text[m.end():m.end() + 5]):
+            continue
         if mo:
             yr, hh, mm, span = _scan_tail(text, m.end())
             add(m.start(), span, yr, mo, m.group(1), hh, mm, yr is not None)
@@ -719,6 +762,11 @@ _COUNTDOWN_RE = re.compile(
     re.I)
 # "Ended on: 07/23/2026"
 _ENDED_ON_RE = re.compile(r"ended\s*on[:\s]*(\d{1,2})/(\d{1,2})/(20\d{2})", re.I)
+# A card in its prize-claim phase is FINISHED: "Claimable in: 01 D 18 h" counts
+# down to when claiming opens, "Claim ongoing: 04 D" to when it closes. Neither
+# carries the competition's end date, so these cards sat as "dates TBD" for weeks
+# (Canopy ended 16 Oct, still shown 28 Oct) while the listing kept re-showing them.
+_CLAIM_PHASE_RE = re.compile(r"\b(?:claimable\s*in|claim\s*ongoing)\b", re.I)
 
 
 def _extract_okx_web3(payload, source, cfg):
@@ -769,9 +817,10 @@ def _extract_okx_web3(payload, source, cfg):
         # Strip whole timer phrases first ("Ends in: 03 D 09 h 59 m 35 s",
         # "Claim ongoing: 05 D 11 h ...") — digits and units together, so nothing
         # numeric survives to be mistaken for a token amount.
-        _TIMER = r"(?:\d{1,3}\s*[dhms]\b[\s:]*)+"
-        cleaned = re.sub(r"(?:ends?\s*in|starts?\s*in|claim ongoing)[:\s]*" + _TIMER,
-                         " ", text, flags=re.I)
+        # a timer that hasn't rendered yet shows "--" placeholders ("-- D -- h")
+        _TIMER = r"(?:(?:\d{1,3}|--)\s*[dhms]\b[\s:]*)+"
+        cleaned = re.sub(r"(?:ends?\s*in|starts?\s*in|claim\s*ongoing|claimable\s*in)[:\s]*"
+                         + _TIMER, " ", text, flags=re.I)
         cleaned = _ENDED_ON_RE.sub(" ", cleaned)
         cleaned = re.sub(r"^" + _TIMER, " ", cleaned.strip(), flags=re.I)
         cleaned = re.sub(r"\b(view details|join now|competition|ended|participants)\b",
@@ -789,8 +838,11 @@ def _extract_okx_web3(payload, source, cfg):
 
         start_utc = end_utc = None
         conf = "unverified"
+        finished = False
         em = _ENDED_ON_RE.search(text)
-        if em:
+        if _CLAIM_PHASE_RE.search(text) and not _COUNTDOWN_RE.search(text):
+            finished = True          # end date fixed in scanner.merge_and_retain
+        elif em:
             mo, dd, yy = int(em.group(1)), int(em.group(2)), int(em.group(3))
             d0 = _mk(yy, mo, dd, 0, 0)
             if d0:
@@ -822,6 +874,7 @@ def _extract_okx_web3(payload, source, cfg):
             "start_utc": start_utc,
             "end_utc": end_utc,
             "date_confidence": conf,
+            "finished": finished,
         })
     return out
 
@@ -1249,6 +1302,7 @@ def build_record(cand: dict, source: dict, cfg: dict, now_iso: str):
         "end_utc": end_utc,
         "date_confidence": conf,
         "dates_v": DATE_PARSER_VERSION,
+        "claim_phase": bool(cand.get("finished")),
         "structure": cand.get("structure"),
         "entry": None,
         "eligibility": None,

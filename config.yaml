@@ -19,6 +19,7 @@ thresholds:
   retention_days: 7               # keep ENDED competitions visible this many days after end
   absent_drop_days: 7             # drop an unknown-date comp if unseen this many days
   stale_start_days: 45            # drop a comp whose start is older than this AND has no end date (stale archive entry)
+  tbd_max_age_days: 30            # drop a "dates TBD" comp posted (or first seen) longer ago than this
   seen_prune_days: 180            # forget dedup memory entries older than this
   # Detail-page date hunting. The cap must exceed the number of date-less items a scan
   # can produce, or old archive events never get their end date, never look "ended",
@@ -35,7 +36,8 @@ thresholds:
   # pages can't be read from GitHub (CAPTCHA / empty app shells) are skipped —
   # those comps fall back to the title/link rules.
   deriv_check_cap: 30
-  deriv_check_skip_hosts: [binance.com, web3.okx.com, okx.com, t.me]
+  # (binance.com is read through its public article API, so it is checked too)
+  deriv_check_skip_hosts: [web3.okx.com, okx.com, t.me]
   deriv_recheck_unreadable_days: 3
   # Telegram follows the dashboard's Halal-strict default: events with a
   # futures/margin track are not alerted. Set false to alert them (labelled).
@@ -110,6 +112,44 @@ filter:
     - leveraged token
     - tradfi
     - contract trading
+
+  # Not trading competitions — judged on the TITLE only (a genuine comp's
+  # Telegram post can mention "creators" or "feedback" in passing). Each entry is
+  # a card that really appeared on the dashboard (audit 28 Oct 2026).
+  title_exclude_keywords:
+    - creator               # Bitget Insights Creator Incentive, Bybit ByX creators
+    - give feedback         # Binance "Community Voice: Give Feedback on DYOR"
+    - feedback on
+    - community voice
+    - survey
+    - complete kyc          # Bitget "MENA: Complete KYC & Trade to Win" (mystery boxes)
+    - spin                  # "Spin instantly to win" — any spin, not just "spin to win"
+    - orders are now live   # Bybit "POV orders are now live" — product news
+    - orders now live
+    - now live on bybit spot
+  title_exclude_patterns:
+    # "Hold RLUSD in Any Binance Accounts to Share 600,000 XRP" — a token name sits
+    # between "hold" and "to share", so the literal "hold to share" missed it
+    - '\bhold(?:ing)?\b(?:\s+\S+){1,6}?\s+(?:to|and)\s+(?:share|earn|win)\b'
+
+  # A competition's own page reveals a chance-based promo: rewards by random
+  # selection, mystery boxes or draw "attempts", with NO ranking at all (KuCoin
+  # VAYLA "3,000 lucky wallets randomly selected", Binance Starter Carnival Gold
+  # Edition "each attempt gives you a chance"). A page that also ranks traders
+  # (leaderboard, top N, 1st place) is a real competition with a side draw — kept.
+  chance_page_phrases:
+    - 'randomly selected'
+    - 'random(?:ly)? draw'
+    - 'lucky (?:draw|wallets?|users?|winners?)'
+    - 'mystery box'
+    - 'activity attempts?'
+    - 'each attempt'
+    - 'spin the wheel'
+  ranking_page_phrases:
+    - '\brank(?:s|ed|ing|ings)?\b'
+    - '\bleaderboard\b'
+    - '\btop [\d,]{1,7}\b'
+    - '\b\d{1,5}(?:st|nd|rd|th) place\b'
 
   # Phrases on a competition's OWN PAGE that prove a derivatives track, even when
   # the title looks clean (Bitget CandyBomb: "Futures trading pool (new futures

@@ -231,6 +231,11 @@ def _merge_dupe(keep: dict, other: dict):
 #  Futures-track check on each competition's own page (once per competition)
 # --------------------------------------------------------------------------- #
 _PAGE_CACHE: dict[str, str] = {}
+_HUNTED: set = set()          # record ids whose page the date hunter read this run
+
+
+def _html_escape(s: str) -> str:
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def check_derivative_tracks(records, cfg, now: dt.datetime):
@@ -254,7 +259,9 @@ def check_derivative_tracks(records, cfg, now: dt.datetime):
         if r.get("type") == "mixed":
             r["futures_track"] = True
         state = r.get("deriv_check")
-        if state in ("clean", "futures"):
+        # pages read by an older version of this check are read once more, so the
+        # newer chance-only test reaches comps that were already marked clean
+        if state in ("clean", "futures") and r.get("page_check_v", 1) >= PAGE_CHECK_VERSION:
             continue
         if state == "unreadable":
             last = _parse_iso(r.get("deriv_checked_utc"))
@@ -269,13 +276,16 @@ def check_derivative_tracks(records, cfg, now: dt.datetime):
         html = _PAGE_CACHE.get(url)
         if html is None:
             budget -= 1
-            html = fetchers.fetch_detail_fast(url, cfg)
+            binance = fetchers.fetch_binance_article(url, cfg)
+            html = (("<html><body><article>" + _html_escape(binance[0]) + "</article></body></html>")
+                    if binance else fetchers.fetch_detail_fast(url, cfg))
             time.sleep(delay)
         r["deriv_checked_utc"] = iso(now)
         text = parsers.article_text(html) if html else ""
         if len(text) < 300:
             r["deriv_check"] = "unreadable"
             continue
+        r["page_check_v"] = PAGE_CHECK_VERSION
         found = classify.derivative_page_evidence(text, cfg)
         if found:
             r["deriv_check"] = "futures"
@@ -283,7 +293,14 @@ def check_derivative_tracks(records, cfg, now: dt.datetime):
             r["futures_track"] = True
         else:
             r["deriv_check"] = "clean"
+        # rewards by luck with no ranking at all -> not a trading competition
+        chance = classify.chance_only_evidence(text, cfg)
+        if chance:
+            r["not_competition"] = f"chance-based rewards ('{chance}'), no ranking"
     return records
+
+
+PAGE_CHECK_VERSION = 2
 
 
 # --------------------------------------------------------------------------- #
@@ -307,11 +324,16 @@ def hunt_dates(records, cfg, only_old_parser=False):
             break
         if r.get("tier") == "avoid":
             continue
-        # second pass after the merge: only records whose dates came from an older
-        # parser — retained ones the sources no longer list would otherwise keep a
-        # wrong future end date until it passes
-        if only_old_parser and r.get("dates_v", 1) >= parsers.DATE_PARSER_VERSION:
-            continue
+        # second pass after the merge: retained records the first pass never saw —
+        # ones whose dates came from an older parser (a wrong future end would
+        # keep them until it passes) or that still have no end date at all
+        # (Binance Alpha DGrid: ended, no longer listed, stuck as "dates TBD")
+        if only_old_parser:
+            if r.get("id") in _HUNTED:
+                continue
+            if r.get("dates_v", 1) >= parsers.DATE_PARSER_VERSION and r.get("end_utc"):
+                continue
+        _HUNTED.add(r.get("id"))
         # confirmed dates are trusted — but only if a CURRENT parser produced them.
         # Older versions guessed missing years from today and read prize-payout
         # windows as the period (Trust Wallet's 2025 PancakeSwap comp sat on the
@@ -330,15 +352,23 @@ def hunt_dates(records, cfg, only_old_parser=False):
                 r["date_confidence"] = "unverified"
                 r["dates_v"] = parsers.DATE_PARSER_VERSION
             continue
-        html = fetchers.fetch_detail_fast(r.get("official_link", ""), cfg)  # fast HTTP-only
+        link = r.get("official_link", "")
         budget -= 1
         time.sleep(delay)
-        if not html:
-            continue
-        _PAGE_CACHE[r.get("official_link", "")] = html   # reused by the futures check
-        text = parsers._text(html) if "<" in html else html
-        # the page's own publish date decides the year of year-less dates
-        s, e, conf = parsers.extract_dates(text, anchor=parsers.page_published(html))
+        # Binance pages are CAPTCHA-walled; its public article API is not
+        binance = fetchers.fetch_binance_article(link, cfg)
+        if binance:
+            text, anchor = binance
+            html = "<html><body><article>" + _html_escape(text) + "</article></body></html>"
+        else:
+            html = fetchers.fetch_detail_fast(link, cfg)  # fast HTTP-only
+            if not html:
+                continue
+            text = parsers._text(html) if "<" in html else html
+            # the page's own publish date decides the year of year-less dates
+            anchor = parsers.page_published(html)
+        _PAGE_CACHE[link] = html   # reused by the futures check
+        s, e, conf = parsers.extract_dates(text, anchor=anchor)
         r["dates_v"] = parsers.DATE_PARSER_VERSION
         if e:
             r["start_utc"] = s or r.get("start_utc")
@@ -363,6 +393,14 @@ def merge_and_retain(fresh: list, prev_data: dict, cfg: dict, now: dt.datetime):
     for r in fresh:
         r["last_seen_utc"] = now_iso
         p = prev.get(r["id"])
+        # A card the venue shows as finished (OKX "Claimable in" / "Claim ongoing")
+        # but without its end date: it ended no later than the first scan that
+        # saw it finished. Keep that moment fixed across scans — otherwise "end =
+        # now" would renew every scan and the card would never age out.
+        if r.get("claim_phase") and not r.get("end_utc"):
+            pe = _parse_iso(p.get("end_utc")) if p else None
+            r["end_utc"] = p["end_utc"] if (pe and pe <= now) else now_iso
+            r["date_confidence"] = "unverified"
         if p:
             # carry the earliest first_seen
             r["first_seen_utc"] = p.get("first_seen_utc", r["first_seen_utc"])
@@ -379,7 +417,8 @@ def merge_and_retain(fresh: list, prev_data: dict, cfg: dict, now: dt.datetime):
             if p.get("smart_verdict"):
                 r["smart_verdict"] = p["smart_verdict"]
             # the page check runs once per competition — keep its verdict
-            for k in ("deriv_check", "deriv_checked_utc", "deriv_evidence"):
+            for k in ("deriv_check", "deriv_checked_utc", "deriv_evidence",
+                      "page_check_v", "not_competition"):
                 if p.get(k) is not None:
                     r[k] = p[k]
             if p.get("futures_track"):
@@ -419,6 +458,7 @@ def retention_filter(records, cfg, now: dt.datetime):
     retention = dt.timedelta(days=th.get("retention_days", 7))
     stale_start = dt.timedelta(days=th.get("stale_start_days", 45))
     absent_drop = dt.timedelta(days=th.get("absent_drop_days", 7))
+    tbd_max = dt.timedelta(days=th.get("tbd_max_age_days", 30))
     out = []
     for c in records:
         # no end date and the sources stopped listing it — e.g. a record whose
@@ -426,6 +466,12 @@ def retention_filter(records, cfg, now: dt.datetime):
         if not c.get("end_utc"):
             seen = _parse_iso(c.get("last_seen_utc")) or _parse_iso(c.get("first_seen_utc"))
             if seen and (now - seen) > absent_drop:
+                continue
+            # Safety net: still listed, but a month after it was posted nobody has
+            # found an end date. Competitions run 1-4 weeks; an archive page that a
+            # venue keeps listing would otherwise sit as "dates TBD" indefinitely.
+            posted = _parse_iso(c.get("published_utc")) or _parse_iso(c.get("first_seen_utc"))
+            if posted and (now - posted) > tbd_max:
                 continue
         if c.get("smart_verdict") == "exclude":
             continue
@@ -513,6 +559,8 @@ def run_once(cfg, sources, out_dir, dry_run=False):
 
     # read each competition's own page once for a hidden futures/margin track
     merged = check_derivative_tracks(merged, cfg, now)
+    # pages that turned out to be luck-based promos, not competitions
+    merged = [c for c in merged if not c.get("not_competition")]
 
     # is_new via seen memory
     new_ids = []
