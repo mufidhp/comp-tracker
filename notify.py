@@ -168,6 +168,10 @@ def send_scan_alert(data: dict, cfg: dict, new_ids: list[str], suppress_new: boo
     horizon_h = float(th.get("telegram_horizon_days", 7)) * 24
 
     comps = [c for c in data.get("competitions", []) if c.get("tier") != "avoid"]
+    # Halal-strict by default: events with a futures/margin track (labelled on the
+    # dashboard) are not alerted
+    if th.get("telegram_skip_futures_track", True):
+        comps = [c for c in comps if not c.get("futures_track")]
     live = [c for c in comps if not c.get("ended")]
 
     def hours(c):

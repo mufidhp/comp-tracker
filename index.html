@@ -78,6 +78,9 @@
     <span><b style="color:var(--color-accent-2-700)">{{ endingSoon }}</b> ending within 48h</span>
     <span><b style="color:var(--color-text)">{{ newCount }}</b> new</span>
     <span><b style="color:var(--color-text)">{{ liveCount }}</b> live now</span>
+    <sc-if value="{{ strictNote }}" hint-placeholder-val="">
+      <span style="color:var(--color-accent-2-700)">{{ strictNote }}</span>
+    </sc-if>
   </div>
 
   <div style="display:flex;flex-wrap:wrap;margin-top:18px;border-bottom:2px solid var(--color-divider)">
@@ -150,6 +153,14 @@
         <div style="display:inline-flex;border:1px solid var(--color-divider);border-radius:2px;overflow:hidden">
           <sc-for list="{{ themeOptions }}" as="t" hint-placeholder-count="2">
             <button aria-pressed="{{ t.pressed }}" onClick="{{ t.on }}" style="{{ t.style }}" style-hover="{{ t.hover }}">{{ t.label }}</button>
+          </sc-for>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px" title="Halal-strict hides events that include a futures, margin or copy-trading track">
+        <span style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-neutral-600);font-family:var(--font-heading);font-weight:600">Halal-strict</span>
+        <div style="display:inline-flex;border:1px solid var(--color-divider);border-radius:2px;overflow:hidden">
+          <sc-for list="{{ strictOptions }}" as="h" hint-placeholder-count="2">
+            <button aria-pressed="{{ h.pressed }}" onClick="{{ h.on }}" style="{{ h.style }}" style-hover="{{ h.hover }}">{{ h.label }}</button>
           </sc-for>
         </div>
       </div>
@@ -233,6 +244,9 @@
                 </sc-if>
                 <span class="tag tag-neutral">{{ item.typeLabel }}</span>
                 <span class="tag" style="{{ item.tierStyle }}">{{ item.tierLabel }}</span>
+                <sc-if value="{{ item.futuresTrack }}" hint-placeholder-val="{{ false }}">
+                  <span class="tag" title="This event also has a futures, margin or copy-trading track" style="background:var(--color-accent-2-100);color:var(--color-accent-2-800)">⚠ FUTURES TRACK</span>
+                </sc-if>
               </div>
 
               <sc-if value="{{ item.expanded }}" hint-placeholder-val="{{ false }}">
@@ -347,6 +361,8 @@ class Component extends DCLogic {
       sortDir: (["prize","added"].includes(props.defaultSort)) ? "desc" : "asc",
       groupBy: props.defaultGroup || "timeleft",
       expanded:{}, showSources:false, showSettings:false, tz:"PKT", view:"main", status:"live",
+      // on unless the viewer switched it off
+      strict: (()=>{ try{ return localStorage.getItem("ct_strict")!=="0"; }catch(e){ return true; } })(),
       theme: (typeof localStorage!=="undefined" && localStorage.getItem("ct_theme")) || ((typeof matchMedia!=="undefined" && matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "light"),
       model:"haiku", smartStatus: d.smart_configured ? "smart mode ready" : "smart mode not configured",
       tick:0
@@ -475,6 +491,7 @@ class Component extends DCLogic {
     const add=(l,v)=>{ if(v!=null && String(v).trim()!=="") details.push({label:l,value:String(v)}); };
     if(c.start_utc||c.end_utc) add("Runs", this.fmt(c.start_utc)+"  →  "+this.fmt(c.end_utc,true));
     add("Structure",c.structure); add("Entry",c.entry); add("Eligibility",c.eligibility); add("Fee",c.fee);
+    if(this.hasFuturesTrack(c)) add("Futures track", c.deriv_evidence ? ("found on the event page: "+c.deriv_evidence) : "spot + futures event — join only the spot part");
     const tm=this.tierMeta(c.tier);
     const expanded=!!this.state.expanded[c.id];
     let dateWarn="";
@@ -483,6 +500,7 @@ class Component extends DCLogic {
     return {
       id:c.id, name:c.name||"Untitled competition", venue:c.venue||"Unknown",
       prize:c.prize||"", isNew:!!c.is_new,
+      futuresTrack:this.hasFuturesTrack(c),
       typeLabel:(c.type||"?").toUpperCase(),
       tierLabel:tm.label, tierStyle:tm.style,
       cdLabel:cd.label, cdStyle:this.cdStyle(cd.tone),
@@ -502,6 +520,8 @@ class Component extends DCLogic {
   }
 
   toggleExpand(id){ this.setState(s=>({expanded:{...s.expanded,[id]:!s.expanded[id]}})); }
+  hasFuturesTrack(c){ return !!c.futures_track || c.type==="mixed"; }
+  setStrict(on){ try{ localStorage.setItem("ct_strict", on?"1":"0"); }catch(e){} this.setState({strict:on}); }
   binSub(c){
     const t=((c.name||"")+" "+(c.structure||"")+" "+(c.official_link||"")).toLowerCase();
     if(t.includes("wallet")||t.includes("web3")||t.includes("on-chain")||t.includes("onchain")) return "wallet";
@@ -599,7 +619,10 @@ class Component extends DCLogic {
     const D=this.data(); const C=this._consts;
     this._red = this.props.urgentHours ?? C.redHours ?? 24;
     this._amber = this.props.soonHours ?? C.amberHours ?? 72;
-    const comps=(D.competitions||[]).slice();
+    const everything=(D.competitions||[]).slice();
+    const flaggedN=everything.filter(c=>this.hasFuturesTrack(c)).length;
+    // Halal-strict: events with a futures/margin track leave every list and count
+    const comps=this.state.strict ? everything.filter(c=>!this.hasFuturesTrack(c)) : everything;
     const q=this.state.q.trim().toLowerCase();
 
     // base = search + venue filtered (for chip counts)
@@ -609,7 +632,7 @@ class Component extends DCLogic {
     const inScope=comps.filter(c=> this.matchQ(c,q) && this.statusOf(c)===this.state.status);
     const parentOf=(v)=>{ if(v==="KuCoin Web3 Wallet") return "KuCoin"; if(v==="Bitget Wallet") return "Bitget"; if(v==="Binance Alpha"||v==="Binance Wallet") return "Binance"; return v; };
     const vcount={}; inScope.forEach(c=>{ const v=parentOf(c.venue||"Other"); vcount[v]=(vcount[v]||0)+1; });
-    const allVenues=[...new Set((D.competitions||[]).map(c=>parentOf(c.venue||"Other")))].sort((a,b)=>(vcount[b]||0)-(vcount[a]||0)||a.localeCompare(b));
+    const allVenues=[...new Set(comps.map(c=>parentOf(c.venue||"Other")))].sort((a,b)=>(vcount[b]||0)-(vcount[a]||0)||a.localeCompare(b));
     const tagBase="cursor:pointer;font-family:var(--font-heading);font-weight:600;font-size:12.5px;padding:5px 12px;border-radius:2px;border:1px solid var(--color-divider);white-space:nowrap;";
     const tagOn="background:var(--color-accent);color:var(--color-bg);border-color:var(--color-accent)";
     const tagOff="background:var(--color-bg);color:var(--color-neutral-800)";
@@ -727,6 +750,10 @@ class Component extends DCLogic {
       headScanType: D.last_mode==="B" ? "smart scan · AI" : "auto scan · free",
       tz:this.state.tz, tzZoneLabel: this.state.tz==="UTC" ? "TIMES IN UTC" : "TIMES IN PKT · UTC+5",
       tzOptions:["PKT","UTC"].map(z=>{ const a=this.state.tz===z; const seg="cursor:pointer;font-family:var(--font-heading);font-weight:600;font-size:12.5px;padding:6px 12px;border:none;white-space:nowrap;"; return {id:z,label:z,pressed:a,style:seg+(a?"background:var(--color-text);color:var(--color-bg)":"background:transparent;color:var(--color-neutral-800)"),hover:a?"":"background:var(--color-neutral-200)",on:()=>this.setState({tz:z})}; }),
+      strictOptions:[[true,"On"],[false,"Off"]].map(([on,label])=>{ const a=this.state.strict===on; const seg="cursor:pointer;font-family:var(--font-heading);font-weight:600;font-size:12.5px;padding:6px 12px;border:none;white-space:nowrap;"; return {id:String(on),label,pressed:a,style:seg+(a?"background:var(--color-text);color:var(--color-bg)":"background:transparent;color:var(--color-neutral-800)"),hover:a?"":"background:var(--color-neutral-200)",on:()=>this.setStrict(on)}; }),
+      strictNote: flaggedN===0 ? "" : (this.state.strict
+        ? (flaggedN+" event"+(flaggedN===1?"":"s")+" with a futures/margin track hidden (Halal-strict on)")
+        : (flaggedN+" event"+(flaggedN===1?"":"s")+" marked ⚠ FUTURES TRACK")),
       theme:this.state.theme,
       themeOptions:[["light","Light"],["dark","Dark"]].map(([id,label])=>{ const a=this.state.theme===id; const seg="cursor:pointer;font-family:var(--font-heading);font-weight:600;font-size:12.5px;padding:6px 12px;border:none;white-space:nowrap;"; return {id,label,pressed:a,style:seg+(a?"background:var(--color-text);color:var(--color-bg)":"background:transparent;color:var(--color-neutral-800)"),hover:a?"":"background:var(--color-neutral-200)",on:()=>{ try{localStorage.setItem("ct_theme",id)}catch(e){} this.setState({theme:id}); }}; }),
       headMode: modeLabel,

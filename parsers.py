@@ -332,6 +332,55 @@ def _text(html: str) -> str:
     return _soup(html).get_text(" ", strip=True)
 
 
+# Class/id TOKENS that mark page chrome. Matched per token, not as a substring of
+# the whole class string — Tailwind classes like "[&_img]:inline-block" contain
+# fragments of everything, and substring matching threw away KuCoin's article body.
+_CHROME_TOKEN = re.compile(
+    r"(?:^|[-_])(related|recommend(?:ed|ation)?s?|sidebar|breadcrumbs?|menu|navbar|"
+    r"footer|header|share|social|cookie|banner|popular|latest)(?:$|[-_])", re.I)
+
+
+def article_text(html: str) -> str:
+    """
+    The competition's own text, without the site menu, related-article lists and
+    footer. Bitget pages list "Coin-M Futures Trading Challenge" in their related
+    links on every article, so reading the whole page would make clean spot comps
+    look like futures events.
+    """
+    soup = _soup(html)
+    for t in soup(["script", "style", "noscript", "nav", "header", "footer", "aside",
+                   "form", "svg"]):
+        t.decompose()
+    total = len(soup.get_text(" ", strip=True)) or 1
+    for el in list(soup.find_all(True)):
+        if el.attrs is None or el.parent is None:
+            continue
+        toks = list(el.get("class") or []) + ([el.get("id")] if el.get("id") else [])
+        # never discard the block that holds most of the page — that IS the article
+        if any(_CHROME_TOKEN.search(t) for t in toks) and \
+                len(el.get_text(" ", strip=True)) < 0.6 * total:
+            el.decompose()
+    # Related-article lists carry hashed class names (Bitget), so catch them by
+    # shape instead: a block that is almost all link text is a list of other pages,
+    # not the rules of this competition.
+    for el in list(soup.find_all(["div", "ul", "ol", "section"])):
+        if el.attrs is None or el.parent is None:
+            continue
+        text = el.get_text(" ", strip=True)
+        if len(text) < 80 or len(text) > 0.6 * total:
+            continue
+        linked = sum(len(a.get_text(" ", strip=True)) for a in el.find_all("a"))
+        if linked > 0.7 * len(text):
+            el.decompose()
+    for sel in ("article", "[class*=article-content]", "[class*=ArticleContent]", "main"):
+        el = soup.select_one(sel)
+        if el:
+            t = el.get_text(" ", strip=True)
+            if len(t) > 300:
+                return t
+    return soup.get_text(" ", strip=True)
+
+
 def _anchor_candidates(html, base_url, href_needles, cfg, min_len=15):
     """Generic: every <a> whose href contains any needle and whose text looks like a title."""
     soup = _soup(html)
@@ -1073,12 +1122,12 @@ def build_record(cand: dict, source: dict, cfg: dict, now_iso: str):
     if not name:
         return None
     body = cand.get("body") or name
-    verdict = classify.classify_item(name, body, cfg)
+    url = cand.get("url") or source.get("url", "")
+    verdict = classify.classify_item(name, body, cfg, link=url)
     if not verdict["keep"]:
         return None
 
     venue = classify.normalize_venue(cand.get("venue") or source.get("venue", ""), cfg)
-    url = cand.get("url") or source.get("url", "")
 
     # dates: use ones supplied by the extractor (e.g. Bybit confirmed, OKX countdowns),
     # else parse them out of the text. An extractor that supplies ONLY an end date
@@ -1096,8 +1145,10 @@ def build_record(cand: dict, source: dict, cfg: dict, now_iso: str):
         "name": name,
         "venue": venue,
         # an extractor that knows the product (e.g. Binance Wallet = onchain) wins
-        # over the keyword guess, which only sees the title text
-        "type": cand.get("force_type") or verdict["type"],
+        # over the keyword guess — except "mixed", which must never be hidden
+        "type": (verdict["type"] if verdict["type"] == "mixed"
+                 else cand.get("force_type") or verdict["type"]),
+        "futures_track": verdict["type"] == "mixed",
         "prize": cand.get("prize"),
         "start_utc": start_utc,
         "end_utc": end_utc,

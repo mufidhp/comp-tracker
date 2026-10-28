@@ -25,6 +25,16 @@ thresholds:
   # and linger as "dates TBD" zombies. KuCoin Web3's archive alone can return ~40.
   detail_fetch_cap: 75            # max competition detail pages opened per Mode-A run
   detail_fetch_delay_sec: 0.6     # polite pause between detail-page fetches (fast HTTP-only)
+  # Futures-track page check: each competition's own page is read ONCE for
+  # derivative-participation phrases and the verdict is remembered. Hosts whose
+  # pages can't be read from GitHub (CAPTCHA / empty app shells) are skipped —
+  # those comps fall back to the title/link rules.
+  deriv_check_cap: 30
+  deriv_check_skip_hosts: [binance.com, web3.okx.com, okx.com, t.me]
+  deriv_recheck_unreadable_days: 3
+  # Telegram follows the dashboard's Halal-strict default: events with a
+  # futures/margin track are not alerted. Set false to alert them (labelled).
+  telegram_skip_futures_track: true
 
 fetch:
   user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
@@ -76,6 +86,42 @@ filter:
     - cfd
     - copy trading
     - futures grid
+    - usdt m
+    - coin m
+    - contract trading
+
+  # Derivative PRODUCTS — checked against the title and the link only (not the
+  # body, where a real spot comp can say "profit margins" or "the option to join").
+  # Any hit drops the item outright, no "mixed" rescue. Futures/perps titles are
+  # handled separately in classify.py so a true "Spot & Futures" combo can still
+  # be kept and labelled.
+  derivative_title_keywords:
+    - margin
+    - option
+    - copy trade
+    - copy trading
+    - leverage
+    - leveraged
+    - leveraged token
+    - tradfi
+    - contract trading
+
+  # Phrases on a competition's OWN PAGE that prove a derivatives track, even when
+  # the title looks clean (Bitget CandyBomb: "Futures trading pool (new futures
+  # users only)"). Only participation phrases — a bare "futures" or "margin" is in
+  # every Bitget page's menu and related-articles list. Tuned on 32 live pages:
+  # all 7 real derivative pages matched, all clean pages did not.
+  derivative_page_phrases:
+    - 'futures (?:trading )?(?:pool|task|volume|position|campaign pool|reward pool)'
+    - '(?:first|open(?:ing)?|complete (?:a|your))\s+(?:a\s+)?futures (?:trade|position)'
+    - 'new futures users'
+    - 'margin (?:trading )?(?:pool|task|volume|position)'
+    - '(?:perpetual|perps?) (?:trading )?(?:pool|task|volume|position)'
+    - '(?:usdt|coin)-?m (?:perpetual|futures) (?:trading )?(?:volume|pool|task|position)'
+    - 'copy trad(?:e|ing) (?:volume|pool|task|position|campaign|to win)'
+    - '\b(?:start|begin|follow)\s+copy trading'
+    - '\b\d{1,3}x leverage\b'
+    - '\bleverage of \d'
 
   # HARD excludes — never a spot/onchain trading competition, always dropped,
   # no "mixed" rescue. (Giveaways/football promos from wallet channels were
@@ -155,6 +201,11 @@ filter:
     - swag contest
     - testimonial
     - rewards are here
+    # Bybit's Telegram channel posts news digests that mention perpetuals; they
+    # were being kept as "mixed" competitions
+    - platform updates
+    - market bits
+    - index components
 
   # Regex include patterns — for real comp phrasings that literal keywords miss
   # because the token name sits in the middle, e.g. Bitget Wallet's channel style:

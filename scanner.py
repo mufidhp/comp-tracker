@@ -30,6 +30,7 @@ import classify
 import render
 import notify
 import smart
+import guard
 
 UTC = dt.timezone.utc
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -227,6 +228,65 @@ def _merge_dupe(keep: dict, other: dict):
 
 
 # --------------------------------------------------------------------------- #
+#  Futures-track check on each competition's own page (once per competition)
+# --------------------------------------------------------------------------- #
+_PAGE_CACHE: dict[str, str] = {}
+
+
+def check_derivative_tracks(records, cfg, now: dt.datetime):
+    """
+    Read each competition's page ONCE and flag a futures/margin/copy-trading track
+    the title doesn't mention — Bitget CandyBombs read "Trade to share 1,000,000 DNA"
+    but split the prize into a spot pool and a "Futures trading pool".
+
+    The verdict is stored on the record (deriv_check = clean | futures | unreadable)
+    and carried across scans, so each page costs one fetch in its lifetime.
+    Unreadable pages (CAPTCHA, app shells) are retried after a few days; until then
+    the title/link rules are the only guard for them.
+    """
+    th = cfg.get("thresholds", {})
+    budget = int(th.get("deriv_check_cap", 30))
+    skip = [h.lower() for h in (th.get("deriv_check_skip_hosts") or [])]
+    retry = dt.timedelta(days=float(th.get("deriv_recheck_unreadable_days", 3)))
+    delay = float(th.get("detail_fetch_delay_sec", 0.6))
+
+    for r in records:
+        if r.get("type") == "mixed":
+            r["futures_track"] = True
+        state = r.get("deriv_check")
+        if state in ("clean", "futures"):
+            continue
+        if state == "unreadable":
+            last = _parse_iso(r.get("deriv_checked_utc"))
+            if last and now - last < retry:
+                continue
+        url = r.get("official_link") or ""
+        host = fetchers.host_of(url)
+        if not url.startswith("http") or any(host == h or host.endswith("." + h) for h in skip):
+            continue
+        if budget <= 0:
+            break
+        html = _PAGE_CACHE.get(url)
+        if html is None:
+            budget -= 1
+            html = fetchers.fetch_detail_fast(url, cfg)
+            time.sleep(delay)
+        r["deriv_checked_utc"] = iso(now)
+        text = parsers.article_text(html) if html else ""
+        if len(text) < 300:
+            r["deriv_check"] = "unreadable"
+            continue
+        found = classify.derivative_page_evidence(text, cfg)
+        if found:
+            r["deriv_check"] = "futures"
+            r["deriv_evidence"] = ", ".join(found[:3])
+            r["futures_track"] = True
+        else:
+            r["deriv_check"] = "clean"
+    return records
+
+
+# --------------------------------------------------------------------------- #
 #  Mode-A free date extraction from detail pages (NEW items only, capped)
 # --------------------------------------------------------------------------- #
 def hunt_dates(records, cfg):
@@ -253,6 +313,7 @@ def hunt_dates(records, cfg):
         time.sleep(delay)
         if not html:
             continue
+        _PAGE_CACHE[r.get("official_link", "")] = html   # reused by the futures check
         text = parsers._text(html) if "<" in html else html
         s, e, conf = parsers.extract_dates(text)
         if e:
@@ -290,6 +351,12 @@ def merge_and_retain(fresh: list, prev_data: dict, cfg: dict, now: dt.datetime):
                 r["date_confidence"] = "confirmed"
             if p.get("smart_verdict"):
                 r["smart_verdict"] = p["smart_verdict"]
+            # the page check runs once per competition — keep its verdict
+            for k in ("deriv_check", "deriv_checked_utc", "deriv_evidence"):
+                if p.get(k) is not None:
+                    r[k] = p[k]
+            if p.get("futures_track"):
+                r["futures_track"] = True
         fresh_by_id[r["id"]] = r
 
     # retain previous items that dropped off this scan but shouldn't disappear yet
@@ -308,7 +375,8 @@ def merge_and_retain(fresh: list, prev_data: dict, cfg: dict, now: dt.datetime):
         if keep:
             # re-screen with the CURRENT filter: previously stored noise (e.g. World Cup
             # promos saved before a filter tightening) gets purged instead of lingering
-            v = classify.classify_item(p.get("name", ""), "", cfg)
+            v = classify.classify_item(p.get("name", ""), "", cfg,
+                                       link=p.get("official_link") or "")
             if v["keep"]:
                 fresh_by_id[pid] = p
 
@@ -369,6 +437,12 @@ def run_once(cfg, sources, out_dir, dry_run=False):
     seen_path = os.path.join(out_dir, "seen.json")
     datajs_path = os.path.join(out_dir, "comp-data.js")  # dashboard reads this; index.html is static
 
+    # Refuse to publish with a broken filter: every known futures leak must still be
+    # dropped and every known-good spot comp still kept. A failure raises, main()
+    # sends the crash alert, and the workflow skips the commit — the dashboard keeps
+    # its last good data instead of filling with futures comps.
+    guard.assert_filter_ok(cfg)
+
     prev_data = load_json(data_path, {})
     seen = load_json(seen_path, {})
     first_ever = len(seen) == 0
@@ -391,6 +465,9 @@ def run_once(cfg, sources, out_dir, dry_run=False):
     # dedup AGAIN post-merge: a retained old record (different id/url) can duplicate
     # a fresh one — e.g. the aggregator's short title vs the venue's full title.
     merged = dedup(merged)
+
+    # read each competition's own page once for a hidden futures/margin track
+    merged = check_derivative_tracks(merged, cfg, now)
 
     # is_new via seen memory
     new_ids = []
